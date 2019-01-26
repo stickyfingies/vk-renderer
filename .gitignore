@@ -30,3 +30,9 @@
 *.exe
 *.out
 *.app
+
+# Temporary files
+Build/
+
+# IDE data
+.vs/
