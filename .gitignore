@@ -12,19 +12,25 @@
 *.pch
 
 # Compiled Dynamic libraries
-*.so
-*.dylib
-*.dll
+# NOTE: Hanging on to these due to convenience.
+# This will change in the future.
+
+# *.so
+# *.dylib
+# *.dll
+*.ilk
+*.pdb
 
 # Fortran module files
 *.mod
 *.smod
 
 # Compiled Static libraries
-*.lai
-*.la
-*.a
-*.lib
+# NOTE: See 'Compiled Dynamic Libaries'
+# *.lai
+# *.la
+# *.a
+# *.lib
 
 # Executables
 *.exe
@@ -36,3 +42,4 @@ Build/
 
 # IDE data
 .vs/
+.vscode/
