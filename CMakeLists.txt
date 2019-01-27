@@ -10,7 +10,7 @@ PRIVATE
 	Source/GraphicsDevice.cpp
 )
 
-set(ENV{VULKAN_SDK} "/VulkanSDK")
+set(ENV{VULKAN_SDK} "C:/VulkanSDK/1.1.92.1")
 
 find_package(Vulkan REQUIRED)
 
@@ -28,7 +28,7 @@ set (UnixLibs
 )
 
 set (Win32Libs
-	${CMAKE_CURRENT_SOURCE_DIR}/Bin/libglfw3dll.lib
+	${CMAKE_CURRENT_SOURCE_DIR}/Bin/glfw3dll.lib
 )
 
 if (WIN32)
