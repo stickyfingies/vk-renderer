@@ -7,7 +7,9 @@ add_executable (VulkanToy)
 target_sources (VulkanToy
 PRIVATE
 	Source/Main.cpp
-	Source/GraphicsDevice.cpp
+	Source/VulkanApp.cpp
+	Source/Instance.cpp
+	Source/Surface.cpp
 )
 
 set(ENV{VULKAN_SDK} "C:/VulkanSDK/1.1.92.1")

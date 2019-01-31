@@ -1,14 +1,14 @@
-#include <GraphicsDevice.h>
+#include <VulkanApp.h>
 
 #include <iostream>
 
 int main()
 {
-	GraphicsDevice device{1024, 768};
+	VulkanApp app{1024, 768};
 
 	try
 	{
-		device.Run();
+		app.Run();
 	}
 	catch (const std::runtime_error & err)
 	{
