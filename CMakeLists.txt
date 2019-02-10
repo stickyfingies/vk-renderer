@@ -9,7 +9,7 @@ PRIVATE
 	Source/Main.cpp
 	Source/VulkanApp.cpp
 	Source/Instance.cpp
-	Source/Surface.cpp
+	Source/GraphicsDevice.cpp
 )
 
 set(ENV{VULKAN_SDK} "C:/VulkanSDK/1.1.92.1")
