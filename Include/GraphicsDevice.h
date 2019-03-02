@@ -4,69 +4,30 @@
 
 #pragma once
 
+#include <Camera.h>
+
+#include <glm/glm.hpp>
+
 struct GLFWwindow;
 
-enum class ImageFormat : unsigned char
+struct FrameData
 {
-	SWAPCHAIN
-};
+	alignas(4) float aspect_ratio;
 
-enum class ImageLayout : unsigned char
-{
-	UNDEFINED,
-	COLOR_OPTIMAL,
-	PRESENT
-};
+	alignas(16) glm::vec3 light_pos;
 
-enum class LoadOp : unsigned char
-{
-	CLEAR
-};
-
-enum class StoreOp : unsigned char
-{
-	STORE
-};
-
-enum class ShaderStage : unsigned char
-{
-	VERTEX,
-	FRAGMENT
-};
-
-struct AttachmentInfo final
-{
-	ImageFormat format;
-
-	ImageLayout initialLayout;
-	ImageLayout finalLayout;
-
-	LoadOp  loadOp;
-	StoreOp storeOp;
-};
-
-struct SubPassInfo final
-{
-	const unsigned short colorReferences [8];
-
-	unsigned char colorReferenceCount;
-};
-
-struct RenderPassInfo final
-{
-	const AttachmentInfo * const colorAttachments;
-
-	unsigned short colorAttachmentCount;
-
-	const SubPassInfo * const subpasses;
-
-	unsigned short subpassCount;
+	alignas(16) CameraData camera;
 };
 
 /**
  * @brief Platform-agnostic, explicit API for interfacing with and controlling system GPUs
  *
  * @note Single GPU setups supported.  Multiple GPUs will be ignored, with the most appropriate GPU chosen
+ *
+ * @note Swapchain is first class citizen of graphics device
+ * @note Pipelines and render passes.  Oh, pipelines and render passes.
+ * @note Command submission!
+ *
  */
 struct GraphicsDevice final
 {
@@ -86,63 +47,19 @@ struct GraphicsDevice final
 	 */
 	struct CreateInfo final
 	{
-		GLFWwindow * window; //< Handle to OS window object (GLFW)
+		/// @brief Handle to OS window object (GLFW)
+		GLFWwindow * window;
 
-		unsigned char swapchainSize; //< Recommended number of images in swapchain
+		/// @brief Desired number of backbuffer images in swapchain
+		unsigned char swapchainSize;
 
-		bool debug; //< Toggles debugging features during graphics device construction
-	};
+		/// @brief Number of frames which may be 'in-flight' (processed) at once
+		unsigned char framesInFlight;
 
-	struct Framebuffer_T;
-	struct Pipeline_T;
-	struct ImageView_T;
-	struct RenderPass_T;
+		unsigned short raytrace_resolution;
 
-	struct Framebuffer
-	{
-		Framebuffer_T * data;
-
-		unsigned char count;
-	};
-
-	struct Pipeline
-	{
-		Pipeline_T * data;
-
-		unsigned char count;
-	};
-
-	struct ImageView
-	{
-		ImageView_T * data;
-
-		unsigned char count;
-	};
-
-	struct RenderPass
-	{
-		RenderPass_T * data;
-
-		unsigned char count;
-	};
-
-	struct PipelineInfo final
-	{
-		struct ShaderStageInfo final
-		{
-			const char * byteCode;
-			const char * entryPoint;
-
-			unsigned long long byteCodeSize;
-
-			ShaderStage stage;
-		};
-
-		RenderPass pass;
-
-		ShaderStageInfo * shaderStages;
-
-		unsigned int shaderStageCount;
+		/// @brief Toggles debugging features during graphics device construction
+		bool debug;
 	};
 
 	/**
@@ -165,28 +82,7 @@ struct GraphicsDevice final
 	 */
 	Error Destruct();
 
-	/**
-	 * @brief Create a Render Pass object
-	 *
-	 * @param   info        Information used to construct render pass
-	 * @return  RenderPass  Opaque handle to Render Pass object
-	 *
-	 * @see RenderPassInfo
-	 * @see GraphicsDevice::RenderPass
-	 */
-	RenderPass CreateRenderPass(const RenderPassInfo & info);
+	void Draw(const FrameData & frame_data);
 
-	void DestroyRenderPass(const RenderPass & pass);
-
-	Framebuffer CreateFramebuffer(const RenderPass & pass, const ImageView & imageView);
-
-	void DestroyFramebuffer(const Framebuffer & framebuffer);
-
-	Pipeline CreateGraphicsPipeline(const PipelineInfo & info);
-
-	void DestroyGraphicsPipeline(const Pipeline & pipeline);
-
-	ImageView GetSwapchainImageViews();
-
-	void DrawFrame(const RenderPass & pass, const Pipeline & pipeline, const Framebuffer & framebuffer);
+	void WaitIdle();
 };

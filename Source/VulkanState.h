@@ -1,9 +1,9 @@
 #pragma once
 
-#include <GraphicsDevice.h>
-
 #define VK_USE_PLATFORM_XCB_KHR
 #include <vulkan/vulkan.h>
+
+#include <glm/glm.hpp>
 
 #include <vector>
 
@@ -21,16 +21,16 @@ struct Swapchain
 	/// @brief Swapchain dimentions
 	VkExtent2D extent;
 
-	VkSemaphore imageAvailableSemaphore;
-	VkSemaphore renderFinishedSemaphore;
+	std::vector<VkSemaphore> imageAvailableSemaphores;
+	std::vector<VkSemaphore> renderFinishedSemaphores;
 
-	VkFence frameFence;
+	std::vector<VkFence> frameFences;
 
 	/// @brief Swapchain images
 	std::vector<VkImage> images;
 
 	/// @brief Image views into swapchain images
-	std::vector<GraphicsDevice::ImageView_T> imageViews;
+	std::vector<VkImageView> imageViews;
 
 	std::vector<VkFramebuffer> framebuffers;
 };
@@ -59,17 +59,48 @@ struct VulkanState
 	/// @note Single GPU
 	VkDevice device;
 
+	VkRenderPass render_pass;
+
+	VkPipeline graphics_pipeline;
+	VkPipeline compute_pipeline;
+
+	VkPipelineLayout graphics_pipeline_layout;
+	VkPipelineLayout compute_pipeline_layout;
+
 	VkQueue graphicsQueue;
 	VkQueue presentQueue;
 
 	int graphicsQueueIndex;
 	int presentQueueIndex;
 
-	VkDescriptorPool descriptorPool;
+	VkDescriptorSetLayout graphics_descset_layout;
+	VkDescriptorSetLayout compute_descset_layout;
+
+	VkDescriptorSet  graphics_descset;
+	VkDescriptorPool graphics_desc_pool;
+
+	VkDescriptorSet  compute_descset;
+	VkDescriptorPool compute_desc_pool;
+
+	VkImage     raytrace_storage_image;
+	VkImageView raytrace_storage_image_view;
+
+	VkSampler raytrace_storage_image_sampler;
+
+	VkDeviceMemory raytrace_storage_image_memory;
 
 	/// @note Single threaded
-	VkCommandPool commandPool;
+	std::vector<VkCommandPool> commandPools;
 
-	/// @note Single frame in flight
-	VkCommandBuffer commandBuffer;
+	std::vector<VkCommandBuffer> commandBuffers;
+
+	// IMMUTABLE STATE //
+
+	unsigned char FRAMES_IN_FLIGHT = 2;
+
+	unsigned short RAYTRACE_RESOLUTION;
+
+	// MUTABLE STATE //
+
+	unsigned char currentFrame;
 };

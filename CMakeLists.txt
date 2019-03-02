@@ -7,8 +7,7 @@ add_executable (VulkanToy)
 target_sources (VulkanToy
 PRIVATE
 	Source/Main.cpp
-	Source/VulkanApp.cpp
-	Source/Instance.cpp
+	Source/Camera.cpp
 	Source/GraphicsDevice.cpp
 )
 

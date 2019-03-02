@@ -1,179 +1,191 @@
-// #include <VulkanApp.h>
 #include <GraphicsDevice.h>
+#include <Camera.h>
 
 #include <GLFW/glfw3.h>
 
-#include <fstream>
+#include <chrono>
 #include <iostream>
+#include <thread>
 #include <vector>
 
-static std::vector<char> ReadFile(const char * filename)
+namespace
 {
-	std::ifstream file(filename, std::ios::ate | std::ios::binary);
+	FrameData frame_data;
 
-	if (file.is_open() == false)
+	Camera camera;
+
+	float last_mouse_x;
+	float last_mouse_y;
+
+	bool locked_to_camera = false;
+}
+
+static void poll_keyboard(GLFWwindow * window, float delta_time)
+{
+	const float sensitivity = 15.0f;
+
+	if (glfwGetKey(window, GLFW_KEY_W))
 	{
-		std::cout << "[app] - err :: Failed to open file" << std::endl;
-		return {};
+		camera.move_forward(sensitivity * delta_time);
 	}
+	else if (glfwGetKey(window, GLFW_KEY_S))
+	{
+		camera.move_backward(sensitivity * delta_time);
+	}
+	if (glfwGetKey(window, GLFW_KEY_A))
+	{
+		camera.move_left(sensitivity * delta_time);
+	}
+	else if (glfwGetKey(window, GLFW_KEY_D))
+	{
+		camera.move_right(sensitivity * delta_time);
+	}
+	if (glfwGetKey(window, GLFW_KEY_R))
+	{
+		camera.move_up(sensitivity * delta_time);
+	}
+	else if (glfwGetKey(window, GLFW_KEY_F))
+	{
+		camera.move_down(sensitivity * delta_time);
+	}
+}
 
-	size_t fileSize = (size_t) file.tellg();
-	std::vector<char> buffer(fileSize);
+static void key_callback(GLFWwindow * window, int key, int scancode, int action, int mods)
+{
+	if (key == GLFW_KEY_E && action == GLFW_PRESS)
+	{
+		locked_to_camera = !locked_to_camera;
+	}
+}
 
-	file.seekg(0);
-	file.read(buffer.data(), fileSize);
+static void mouse_callback(GLFWwindow * window, double pos_x, double pos_y)
+{
+	float offset_x = pos_x - last_mouse_x;
+	float offset_y = last_mouse_y - pos_y;
 
-	file.close();
+	last_mouse_x = pos_x;
+	last_mouse_y = pos_y;
 
-	return buffer;
+	const float sensitivity = 0.21f;
+
+	offset_x *= sensitivity;
+	offset_y *= sensitivity;
+
+	camera.aux.yaw   -= offset_x;
+	camera.aux.pitch += offset_y;
+
+	camera.update();
 }
 
 int main()
 {
+	// Create window
+
 	glfwInit();
 	glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
 
 	const auto window = glfwCreateWindow(1024, 768, "Graphics Device", nullptr, nullptr);
 
+	glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
+	glfwSetKeyCallback(window, key_callback);
+	glfwSetCursorPosCallback(window, mouse_callback);
+
+	// Create graphics device
+
 	GraphicsDevice device;
 
-	const GraphicsDevice::CreateInfo info
 	{
-		.window = window,
-		.swapchainSize = 3,
-		.debug = true
-	};
+		// Describe graphics device
 
-	if (const auto res = device.Construct(info); res != GraphicsDevice::Error::SUCCESS)
-	{
-		std::cout << "[app] - err :: Graphics device creation failed :: " << static_cast<unsigned int>(res) << std::endl;
-	}
-
-	GraphicsDevice::RenderPass forwardPass;
-
-	GraphicsDevice::Framebuffer backbuffer;
-
-	{
-		AttachmentInfo colorAttachments[]
+		const GraphicsDevice::CreateInfo info
 		{
-			// Backbuffer attachment
-			{
-				.format = ImageFormat::SWAPCHAIN,
+			.window = window,
 
-				.initialLayout = ImageLayout::UNDEFINED,
-				.finalLayout   = ImageLayout::PRESENT,
+			.swapchainSize  = 3,
+			.framesInFlight = 2,
 
-				.loadOp  = LoadOp::CLEAR,
-				.storeOp = StoreOp::STORE
-			}
+			.raytrace_resolution = 2048,
+
+			.debug = true
 		};
 
-		SubPassInfo subpass
+		// Construct graphics device
+
+		if (const auto res = device.Construct(info); res != GraphicsDevice::Error::SUCCESS)
 		{
-			.colorReferences = {0},
-			.colorReferenceCount = 1
-		};
-
-		forwardPass = device.CreateRenderPass(
-		{
-			.colorAttachments     = colorAttachments,
-			.colorAttachmentCount = sizeof(colorAttachments) / sizeof(colorAttachments[0]),
-
-			.subpasses    = &subpass,
-			.subpassCount = 1
-		});
-
-		GraphicsDevice::ImageView backbufferView = device.GetSwapchainImageViews();
-
-		backbuffer = device.CreateFramebuffer(forwardPass, backbufferView);
+			std::cout << "[app] - err :: Graphics device creation failed :: " << static_cast<unsigned int>(res) << std::endl;
+		}
 	}
 
-	GraphicsDevice::Pipeline pipeline;
+	// Set up main loop
 
-	{
-		const auto vertShader = ReadFile("../Assets/vert.spv");
-		const auto fragShader = ReadFile("../Assets/frag.spv");
+	double previous_time{glfwGetTime()};
 
-		GraphicsDevice::PipelineInfo::ShaderStageInfo shaderStages[]
-		{
-			{
-				.byteCode   = vertShader.data(),
-				.entryPoint = "main",
+	unsigned int frame_count{0};
 
-				.byteCodeSize = vertShader.size(),
+	float delta_time = 0.0f;
+	float last_frame = 0.0f;
 
-				.stage = ShaderStage::VERTEX
-			},
-			{
-				.byteCode   = fragShader.data(),
-				.entryPoint = "main",
+	frame_data.light_pos  = glm::vec3(0.0f, 15.0f, 0.0f);
 
-				.byteCodeSize = fragShader.size(),
-
-				.stage = ShaderStage::FRAGMENT
-			}
-		};
-
-		pipeline = device.CreateGraphicsPipeline(
-		{
-			.pass = forwardPass,
-			.shaderStages = shaderStages,
-			.shaderStageCount = sizeof(shaderStages) / sizeof(shaderStages[0])
-		});
-	}
-
-	double previousTime = glfwGetTime();
-	int frameCount = 0;
+	// Main game loop
 
 	while (glfwWindowShouldClose(window) == false)
 	{
-		double currentTime = glfwGetTime();
-		++frameCount;
+		// FPS calculations
 
-		if (currentTime - previousTime >= 1.0)
+		const double current_time = glfwGetTime();
+		++frame_count;
+
+		// Print FPS
+
+		if (current_time - previous_time >= 1.0)
 		{
-			std::cout << frameCount << " FPS" << std::endl;
+			std::cout << frame_count << " FPS" << std::endl;
 
-			frameCount = 0;
-			previousTime = currentTime;
+			frame_count   = 0;
+			previous_time = current_time;
 		}
+
+		delta_time = current_time - last_frame;
+		last_frame = current_time;
+
+		// Grab user input
 
 		glfwPollEvents();
 
-		device.DrawFrame(forwardPass, pipeline, backbuffer);
+		poll_keyboard(window, delta_time);
+
+		// Draw
+
+		frame_data.camera = camera.data;
+
+		if (locked_to_camera) frame_data.light_pos = camera.data.pos + glm::vec3(0.0, -1.0, 0.0);
+
+		device.Draw(frame_data);
+
+		// Swap backbuffer
 
 		glfwSwapBuffers(window);
+
+		// NOTE
+		// If you're on a higher-end video card like me, you
+		// NEED TO UNCOMMENT THE FOLLOWING LINE or your GPU will
+		// SCREAM and CRY (quite literally.  It is loud.)  And it
+		// will probably also overheat.
+		//
+		// Point being, please uncomment this next line unless
+		// performance depends on it.
+
+		std::this_thread::sleep_for(std::chrono::milliseconds(12));
 	}
 
-	device.DestroyFramebuffer(backbuffer);
+	// Uninitialize
 
-	device.DestroyGraphicsPipeline(pipeline);
-
-	device.DestroyRenderPass(forwardPass);
+	device.WaitIdle();
 
 	device.Destruct();
 
 	glfwDestroyWindow(window);
 	glfwTerminate();
-
-
-
-	// VulkanApp app{1024, 768};
-
-	// try
-	// {
-	// 	app.Run();
-	// }
-	// catch (const std::runtime_error & err)
-	// {
-	// 	std::cerr << err.what() << std::endl;
-
-	// 	int c;
-
-	// 	std::cin >> c;
-
-	// 	return 1;
-	// }
-
-	// return 0;
 }
