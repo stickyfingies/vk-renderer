@@ -22,7 +22,7 @@ namespace
 
 static void poll_keyboard(GLFWwindow * window, float delta_time)
 {
-	const float sensitivity = 15.0f;
+	const float sensitivity = 81.0f;
 
 	if (glfwGetKey(window, GLFW_KEY_W))
 	{
@@ -126,7 +126,7 @@ int main()
 	float delta_time = 0.0f;
 	float last_frame = 0.0f;
 
-	frame_data.light_pos  = glm::vec3(0.0f, 15.0f, 0.0f);
+	frame_data.light_pos  = glm::vec3(0.0f, 64.0f, 0.0f);
 
 	// Main game loop
 

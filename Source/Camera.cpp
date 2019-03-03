@@ -3,8 +3,8 @@
 #include <algorithm>
 
 Camera::Camera()
-	: data{ .pos = glm::vec3(0.0f, 0.0f, 4.0f) }
-	, aux{ .front = {glm::vec3(0.0f, 0.0f, -1.0f)} }
+	: data{ .pos = glm::vec3(0.0f, 64.0f, -48.0f) }
+	, aux{ .front = {glm::vec3(0.0f, 0.0f, -1.0f)}, .pitch = 90.0f, .yaw = 180.0f }
 {
 	update();
 }

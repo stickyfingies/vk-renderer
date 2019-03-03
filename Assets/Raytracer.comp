@@ -1,3 +1,16 @@
+/**
+ *
+ * @file   raytracer.comp
+ * @author StickyFingies
+ *
+ * @brief Compute Shader for rendering reflective geometric primitives
+ *
+ * @note [LIMITATION] Single light source
+ *
+ * @todo Load mesh data off of disk and upload to GPU in form of triangle lists
+ *
+ */
+
 #version 450
 #extension GL_ARB_separate_shader_objects : enable
 
@@ -11,22 +24,42 @@ struct Ray
 	vec3 dir;
 };
 
+struct Intersection
+{
+	uint  mat_id;
+	float dist;
+	vec3  point;
+	vec3  normal;
+};
+
 struct Sphere
 {
-	int  id;
+	uint  mat_id;
 	vec3  origin;
 	vec3  color;
-	float specular;
 	float radius;
 };
 
 struct Plane
 {
-	int   id;
+	uint  mat_id;
 	vec3  normal;
 	vec3  color;
-	float specular;
-	float width;
+	float dist;
+};
+
+struct Tri
+{
+	uint mat_id;
+	vec3 v0;
+	vec3 v1;
+	vec3 v2;
+};
+
+struct Material
+{
+	bool reflective;
+	vec3 diffuse;
 };
 
 struct Camera
@@ -53,22 +86,79 @@ layout (push_constant) uniform FrameData
 };
 
 const float MAX_DISTANCE = 1000.0;
+const float EPSILON      = 0.01;
+const uint  BOUNCES      = 2;
 
 const uint SPHERE_COUNT = 2;
-const uint PLANE_COUNT  = 1;
+const uint PLANE_COUNT  = 5;
+const uint TRI_COUNT    = 1;
 
-const vec3 BACKGROUND_COLOR = vec3(0.2, 0.2, 0.2);
+const vec3 BACKGROUND_COLOR = vec3(0.0, 0.0, 0.0);
 
 const Sphere spheres[] =
 {
-	{ 0, vec3(1.0, 1.0, 0.0), vec3(1.0, 0.0, 0.0), 32.0, 1.0 },
-	{ 1, vec3(32.0, 12.0, 0.0), vec3(0.0, 1.0, 0.0), 32.0, 12.0 }
+	{ 5, vec3(-14.0, 12.0, 32.0), vec3(1.0, 0.0, 1.0), 5.0 },
+	{ 4, vec3(32.0, 24.0, 25.0), vec3(1.0, 1.0, 0.0), 12.0 }
 };
 
 const Plane planes[] =
 {
-	{ 2, vec3(0.0, 1.0, 0.0), vec3(0.0, 0.0, 1.0), 32.0, 20.0 }
+	{ 0, vec3(0.0, 1.0, 0.0),  vec3(1.0, 1.0, 1.0), 0.0 },   // Floor
+	{ 0, vec3(0.0, -1.0, 0.0), vec3(1.0, 1.0, 1.0), 128.0 }, // Cieling
+	{ 2, vec3(0.0, 0.0, -1.0), vec3(0.0, 1.0, 0.0), 64.0 },  // Green wall   (front)
+	// { 5, vec3(0.0, 0.0, 1.0),  vec3(0.0, 0.0, 0.0), 64.0 },  // Black wall   (back)
+	{ 1, vec3(1.0, 0.0, 0.0),  vec3(1.0, 0.0, 0.0), 64.0 },  // Red wall     (left)
+	{ 3, vec3(-1.0, 0.0, 0.0), vec3(0.0, 0.0, 1.0), 64.0 },  // Blue wall    (right)
 };
+
+const Tri tris[] =
+{
+	{ 1, vec3(10.0, 10.0, 0.0), vec3(0.0, 20.0, 0.0), vec3(-10.0, 10.0, 0.0) }
+};
+
+const Material materials[] =
+{
+	{ true,  vec3(1.0, 1.0, 1.0) }, // [0] White
+	{ false,  vec3(1.0, 0.0, 0.0) }, // [1] Red
+	{ true, vec3(0.0, 1.0, 0.0) }, // [2] Green
+	{ false,  vec3(0.0, 0.0, 1.0) }, // [3] Blue
+	{ false,  vec3(1.0, 1.0, 0.0) }, // [4] Yellow
+	{ false, vec3(1.0, 0.0, 1.0) }  // [5] Purple
+};
+
+float calc_tri_intersect(in Ray ray, in Tri tri)
+{
+	const vec3 v0v1 = tri.v1 - tri.v0;
+	const vec3 v0v2 = tri.v2 - tri.v0;
+	const vec3 pvec = cross(ray.dir, v0v2);
+
+	const float determinant = dot(v0v1, pvec);
+
+	if (determinant < EPSILON)
+	{
+		return -1.0;
+	}
+
+	const float inverse_determinant = 1 / determinant;
+
+	const vec3  tvec = ray.origin - tri.v0;
+	const float u    = dot(tvec, pvec) * inverse_determinant;
+
+	if (u < 0 || u > 1)
+	{
+		return -1.0;
+	}
+
+	const vec3  qvec = cross(tvec, v0v1);
+	const float v    = dot(ray.dir, qvec) * inverse_determinant;
+
+	if (v < 0 || u + v > 1)
+	{
+		return -1.0;
+	}
+
+	return dot(v0v2, qvec) * inverse_determinant;
+}
 
 float calc_sphere_intersect(in Ray ray, in Sphere sphere)
 {
@@ -96,68 +186,76 @@ float calc_plane_intersect(in Ray ray, in Plane plane)
 		return 0.0;
 	}
 
-	float t = -(plane.width + dot(ray.origin, plane.normal)) / d;
+	float dist = -(plane.dist + dot(ray.origin, plane.normal)) / d;
 
-	return max(t, 0.0);
+	return max(dist, 0.0);
 }
 
-vec3 calc_sphere_normal(in vec3 pos, in Sphere sphere)
+void reflect_ray(inout Ray ray, in vec3 normal)
 {
-	return (pos - sphere.origin) / sphere.radius;
+	ray.dir = ray.dir - 2.0 * dot(normal, ray.dir) * normal;
 }
 
-vec3 calc_fog(in float dist, in vec3 color)
+void refract_ray(inout Ray ray, in vec3 normal, in float refraction_index)
 {
-	return mix(color, vec3(0.0, 0.0, 0.0), clamp(dist / 200.0, 0.0, 1.0));
-}
+	float cosi = clamp(dot(ray.dir, normal), -1, 1);
+	float etai = 1;
+	float etat = refraction_index;
+	vec3 n = normal;
 
-float calc_shadow(in Ray ray, in uint object_id, in float dist_to_light)
-{
-	for (uint i = 0; i < SPHERE_COUNT; ++i)
+	if (cosi < 0)
 	{
-		if (spheres[i].id == object_id)
-		{
-			continue;
-		}
+		cosi = -cosi;
+	}
+	else
+	{
+		float temp = etai;
+		etai = etat;
+		etat = temp;
 
-		const float dist_to_sphere = calc_sphere_intersect(ray, spheres[i]);
-
-		if ((dist_to_sphere > 0) && (dist_to_sphere < dist_to_light))
-		{
-			return 0.0;
-		}
+		n = -normal;
 	}
 
-	for (uint i = 0; i < PLANE_COUNT; ++i)
-	{
-		if (planes[i].id == object_id)
-		{
-			continue;
-		}
-
-		const float dist_to_plane = calc_plane_intersect(ray, planes[i]);
-
-		if ((dist_to_plane > 0) && (dist_to_plane < dist_to_light))
-		{
-			return 0.0;
-		}
-	}
-
-	return 1.0;
+	float eta = etai / etat;
+	float k = 1 - eta * eta * (1 - cosi * cosi);
+	ray.dir = (k < 0) ? vec3(0.0) : eta * ray.dir + (eta * cosi - sqrt(k)) * n;
 }
 
-int intersect_objects(in Ray ray, inout float dist)
+bool trace_ray(in Ray ray, inout Intersection intersect)
 {
-	int id = -1;
+	bool found = false;
+
+	for (int i = 0; i < 1; ++i)
+	{
+		const float tri_dist = calc_tri_intersect(ray, tris[i]);
+
+		if (tri_dist > EPSILON && tri_dist < intersect.dist)
+		{
+			intersect.dist = tri_dist;
+
+			intersect.mat_id = tris[i].mat_id;
+			intersect.point  = ray.origin + tri_dist * ray.dir;
+
+			vec3 u = tris[i].v1 - tris[i].v0;
+			vec3 v = tris[i].v2 - tris[i].v0;
+
+			intersect.normal = vec3((u.y * v.z) - (u.z * v.y), (u.z * v.x) - (u.x * v.z), (u.x * v.y) - (u.y * v.x));
+			found = true;
+		}
+	}
 
 	for (int i = 0; i < SPHERE_COUNT; ++i)
 	{
 		const float sphere_dist = calc_sphere_intersect(ray, spheres[i]);
 
-		if (sphere_dist > 0 && sphere_dist < dist)
+		if (sphere_dist > EPSILON && sphere_dist < intersect.dist)
 		{
-			id   = spheres[i].id;
-			dist = sphere_dist;
+			intersect.dist = sphere_dist;
+
+			intersect.mat_id = spheres[i].mat_id;
+			intersect.point  = ray.origin + sphere_dist * ray.dir;
+			intersect.normal = (intersect.point - spheres[i].origin) / spheres[i].radius;
+			found = true;
 		}
 	}
 
@@ -165,81 +263,105 @@ int intersect_objects(in Ray ray, inout float dist)
 	{
 		const float plane_dist = calc_plane_intersect(ray, planes[i]);
 
-		if (plane_dist > 0 && plane_dist < dist)
+		if (plane_dist > EPSILON && plane_dist < intersect.dist)
 		{
-			id   = planes[i].id;
-			dist = plane_dist;
+			intersect.dist = plane_dist;
+
+			intersect.mat_id = planes[i].mat_id;
+			intersect.point  = ray.origin + plane_dist * ray.dir;
+			intersect.normal = planes[i].normal;
+			found = true;
 		}
 	}
 
-	return id;
+	return found;
 }
 
-vec4 trace(in Ray ray)
+vec4 render_scene(inout Ray ray, inout uint bounce_depth)
 {
-	float dist = MAX_DISTANCE;
-
-	const int object_id = intersect_objects(ray, dist);
+	// Starting values, will be overridden later
 
 	vec3 color = BACKGROUND_COLOR;
 
-	if (object_id < 0)
+	// Find objects intersected by ray
+
+	Intersection intersect;
+
+	intersect.dist = MAX_DISTANCE;
+
+	if (trace_ray(ray, intersect) == false)
 	{
-		return vec4(0.0, 0.0, 0.0, 1.0);
+		// We didn't find anything, so stop here
+		return vec4(color, 1.0);
 	}
 
-	const vec3  pos = ray.origin + dist * ray.dir;
-	const vec3  light_vec = normalize(light_pos - pos);
+	// Calculate intersection position and direction
+	// from intersection to the light source
 
-	for (uint i = 0; i < SPHERE_COUNT; ++i)
+	const vec3  light_vec     = normalize(light_pos - intersect.point);
+	const float dist_to_light = length(light_pos - intersect.point);
+
+	const Material material = materials[intersect.mat_id];
+
+	// Now we get to the fun part: finding the color of our pixel!
 	{
-		if (spheres[i].id == object_id)
+		vec3 light_intensity = 540.0 * vec3(1.0, 1.0, 1.0) / (4 * 3.14159268 * dist_to_light);
+
+		// Get diffuse color of object
+		const vec3 diffuse = light_intensity * material.diffuse * max(dot(intersect.normal, light_vec), 0.0);
+
+		// Get specular reflection color
+		const vec3 half_vec = normalize(light_vec + normalize(camera.pos));
+		const vec3 specular = light_intensity * pow(clamp(dot(intersect.normal, half_vec), 0.0, 1.0), 16.0);
+
+		// Set total color
+		color = diffuse + specular;
+	}
+
+	// Cast shadows
+	{
+		Intersection shadow_intersect;
+
+		shadow_intersect.dist = dist_to_light;
+
+		const Ray shadow_ray = { intersect.point, light_vec };
+
+		if (trace_ray(shadow_ray, shadow_intersect))
 		{
-			const vec3  normal = calc_sphere_normal(pos, spheres[i]);
+			// An object is occluding the light source,
+			// so darken our color (shadow ourselves)
+			color *= 0.5;
 
-			const float dist_to_light = length(light_pos - pos);
-
-			const vec3 diffuse = spheres[i].color * max(dot(normal, light_vec), 0.0);
-
-			color = diffuse;
-
-			const Ray shadow_ray = { pos, light_vec };
-
-			color *= calc_shadow(shadow_ray, spheres[i].id, dist_to_light);
-
-			color = calc_fog(dist, color);
+			// Stop bouncing once we've hit a shadow
+			bounce_depth = BOUNCES + 1;
 
 			return vec4(color, 1.0);
 		}
 	}
 
-	for (uint i = 0; i < PLANE_COUNT; ++i)
+	// Reflect ray for next bounce
+	if (material.reflective)
 	{
-		if (planes[i].id == object_id)
-		{
-			const float dist_to_light = length(light_pos - pos);
-
-			const vec3 diffuse = planes[i].color * max(dot(planes[i].normal, light_vec), 0.0);
-
-			color = diffuse;
-
-			const Ray shadow_ray = { pos, light_vec };
-
-			color *= calc_shadow(shadow_ray, planes[i].id, dist_to_light);
-
-			color = calc_fog(dist, color);
-
-			return vec4(color, 1.0);
-		}
+		reflect_ray(ray, intersect.normal);
+		ray.origin = intersect.point;
+	}
+	else
+	{
+		bounce_depth = BOUNCES + 1;
 	}
 
+	// Return our final color
 	return vec4(color, 1.0);
 }
 
 void main()
 {
+	// Calculate this thread's UV coordinates
+
 	const ivec2 dim = imageSize(result_image);
 	const vec2  uv  = vec2(gl_GlobalInvocationID.xy) / dim;
+
+	// Convert screen-space UV coords to world-space camera
 
 	const vec2 trans = 2.0 * uv - vec2(1.0);
 
@@ -247,9 +369,31 @@ void main()
 
     dir *= vec2(aspect_ratio, 1.0).xyx;
 
-    const Ray primary_ray = { camera.pos, normalize(dir) };
+	// Fire our primary ray into the scene
 
-	const vec4 color = trace(primary_ray);
+	uint bounce_count = 0;
 
-	imageStore(result_image, ivec2(gl_GlobalInvocationID.xy), color);
+    Ray primary_ray = { camera.pos, normalize(dir) };
+
+	vec4 final_color = render_scene(primary_ray, bounce_count);
+
+	// Calculate reflective surfaces
+
+	float reflection_strength = 0.4;
+
+	while (++bounce_count <= BOUNCES)
+	{
+		// Get color of reflected pixel
+		vec4 reflection_color = render_scene(primary_ray, bounce_count);
+
+		// Accumulate reflection into final color
+		final_color = (1.0 - reflection_strength) * final_color + reflection_strength * mix(reflection_color, final_color, 1.0 - reflection_strength);
+
+		// Decay reflection strength after each bounce
+		reflection_strength *= 0.5;
+	}
+
+	// Store our final pixel result
+
+	imageStore(result_image, ivec2(gl_GlobalInvocationID.xy), final_color);
 }
