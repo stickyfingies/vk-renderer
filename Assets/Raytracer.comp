@@ -335,7 +335,7 @@ vec4 render_scene(inout Ray ray, inout uint bounce_depth)
 			// Stop bouncing once we've hit a shadow
 			bounce_depth = BOUNCES + 1;
 
-			return vec4(color, 1.0);
+			// return vec4(color, 1.0);
 		}
 	}
 

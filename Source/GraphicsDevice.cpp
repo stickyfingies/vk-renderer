@@ -813,8 +813,8 @@ GraphicsDevice::Error GraphicsDevice::Construct(const GraphicsDevice::CreateInfo
 
 	// Create graphics pipeline
 	{
-		auto vert_shader_code = ReadFile("../Assets/vert.spv");
-        auto frag_shader_code = ReadFile("../Assets/frag.spv");
+		auto vert_shader_code = ReadFile("../Assets/Compiled/Fullscreen.vert.spv");
+        auto frag_shader_code = ReadFile("../Assets/Compiled/Fullscreen.frag.spv");
 
         VkShaderModuleCreateInfo vert_module_info{VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO};
         vert_module_info.codeSize = vert_shader_code.size();
@@ -932,7 +932,7 @@ GraphicsDevice::Error GraphicsDevice::Construct(const GraphicsDevice::CreateInfo
 
 	// Create compute pipeline
 	{
-		const auto comp_shader_code = ReadFile("../Assets/comp.spv");
+		const auto comp_shader_code = ReadFile("../Assets/Compiled/Tracer.comp.spv");
 
         VkShaderModuleCreateInfo comp_module_info{VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO};
         comp_module_info.codeSize = comp_shader_code.size();

@@ -1,0 +1,336 @@
+/**
+ * @author Seth Traman
+ * @date   2019 03 04
+ *
+ * @file   Tracer.comp
+ * @brief  Updated raytracing compute shader
+ */
+
+
+
+#version 460
+
+#extension GL_ARB_separate_shader_objects : enable
+
+
+
+/**
+ * @struct Camera
+ *
+ * @brief Represents the viewport which is recieving light from the scene
+ */
+struct Camera
+{
+	/// @brief Position of the camera in world-space
+	vec3 pos;
+
+	/// @brief Normalized direction vector that the camera is viewing
+	vec3 dir;
+
+	/// @brief Normalized right-facing direction relative to view direction
+	vec3 right;
+
+	/// @brief Normalized up-facing direction relative to view direction
+	vec3 up;
+};
+
+/**
+ * @struct Ray
+ *
+ * @brief A three-dimentional half-line which may intersect with other geometric primitives
+ */
+struct Ray
+{
+	/// @brief Position where the ray originates in world-space
+	vec3 origin;
+
+	/// @brief Normalized direction vector that the ray is shooting
+	vec3 dir;
+};
+
+/**
+ * @struct Intersection
+ *
+ * @brief Information about intersection between a ray and a geometric primitive
+ *
+ * @see Ray
+ */
+struct Intersection
+{
+	/// @brief Distance from ray origin which intersection occured
+	float t;
+
+	/// @brief Position of ray intersection in world-space
+	vec3 P;
+
+	/// @brief Normal of surface patch which ray collided with
+	vec3 N;
+};
+
+struct Light
+{
+	/// @brief Position of light in world-space
+	vec3 P;
+
+	/// @brief RGB color of photons emitted from light
+	vec3 color;
+};
+
+/**
+ * @struct Sphere
+ *
+ * @brief Like a ball, but somehow rounder
+ */
+struct Sphere
+{
+	/// @brief Position of sphere in world-space
+	vec3 P;
+
+	/// @brief Radius of the sphere
+	float r;
+};
+
+struct Plane
+{
+	vec3 N;
+
+	float len;
+};
+
+
+
+layout (local_size_x = 16, local_size_y = 16) in;
+
+layout (set = 0, binding = 0, rgba8) uniform writeonly image2D render_target;
+
+layout (push_constant) uniform FrameData
+{
+	/// @brief Width-height ratio of rendering media
+	float aspect_ratio;
+
+	/// @brief Position of the light source in world space
+	vec3 light_pos;
+
+	/// @brief Camera viewport object
+	/// @see Camera
+	Camera camera;
+};
+
+
+const float PI      = 3.14159265359;
+const float EPSILON = 0.1;
+
+const uint LIGHT_COUNT  = 1;
+const uint SPHERE_COUNT = 1;
+const uint PLANE_COUNT  = 1;
+
+Light lights[LIGHT_COUNT] =
+{
+	{ vec3(16.0, 64.0, 16.0), vec3(3200.0, 3200.0, 3200.0) }
+};
+
+Sphere spheres[SPHERE_COUNT] =
+{
+	{ vec3(0.0, 16.0, 0.0), 16.0 }
+};
+
+Plane planes[PLANE_COUNT] =
+{
+	{ vec3(0.0, 1.0, 0.0), 0.0 }
+};
+
+
+
+float distribution_ggx(in vec3 N, in vec3 H, in float roughness)
+{
+    const float a = roughness * roughness;
+    const float a2 = a * a;
+    const float n_dot_h = max(dot(N, H), 0.0);
+    const float n_dot_h2 = n_dot_h * n_dot_h;
+
+    const float nom   = a2;
+    float denom = (n_dot_h2 * (a2 - 1.0) + 1.0);
+    denom = PI * denom * denom;
+
+    return nom / denom;
+}
+
+float geometry_schlick_ggx(in float n_dot_v, in float roughness)
+{
+    const float r = (roughness + 1.0);
+    const float k = (r * r) / 8.0;
+
+    const float nom   = n_dot_v;
+    const float denom = n_dot_v * (1.0 - k) + k;
+
+    return nom / denom;
+}
+
+float geometry_smith(in vec3 N, in vec3 V, in vec3 L, in float roughness)
+{
+    const float n_dot_v = max(dot(N, V), 0.0);
+    const float n_dot_l = max(dot(N, L), 0.0);
+
+    const float ggx2 = geometry_schlick_ggx(n_dot_v, roughness);
+    const float ggx1 = geometry_schlick_ggx(n_dot_l, roughness);
+
+    return ggx1 * ggx2;
+}
+
+vec3 fresnel_schlick(float cosTheta, vec3 F0)
+{
+    return F0 + (1.0 - F0) * pow(1.0 - cosTheta, 5.0);
+}
+
+float calc_sphere_intersect(in Ray ray, in Sphere sphere)
+{
+	const vec3  oc = ray.origin - sphere.P;
+	const float b  = 2.0 * dot(oc, ray.dir);
+	const float c  = dot(oc, oc) - sphere.r * sphere.r;
+	const float h  = b * b - 4.0 * c;
+
+	if (h < 0.0)
+	{
+		return -1.0;
+	}
+
+	const float t = (-b - sqrt(h)) / 2.0;
+
+	return t;
+}
+
+float calc_plane_intersect(in Ray ray, in Plane plane)
+{
+	float d = dot(ray.dir, plane.N);
+
+	if (d == 0.0)
+	{
+		return 0.0;
+	}
+
+	float dist = -(plane.len + dot(ray.origin, plane.N)) / d;
+
+	return max(dist, 0.0);
+}
+
+bool trace_ray(in Ray ray, inout Intersection intersect)
+{
+	bool found = false;
+
+	for (uint i = 0; i < SPHERE_COUNT; ++i)
+	{
+		const float t = calc_sphere_intersect(ray, spheres[i]);
+
+		if ((t > EPSILON) && (t < intersect.t - EPSILON))
+		{
+			intersect.t = t;
+			intersect.P = ray.origin + t * ray.dir;
+			intersect.N = (intersect.P - spheres[i].P) / spheres[i].r;
+
+			found = true;
+		}
+	}
+
+	for (uint i = 0; i < PLANE_COUNT; ++i)
+	{
+		const float t = calc_plane_intersect(ray, planes[i]);
+
+		if ((t > EPSILON) && (t < intersect.t - EPSILON))
+		{
+			intersect.t = t;
+			intersect.P = ray.origin + t * ray.dir;
+			intersect.N = planes[i].N;
+
+			found = true;
+		}
+	}
+
+	return found;
+}
+
+
+
+void main()
+{
+	// Compute camera coordinates and ray direction
+
+	const ivec2 render_target_size = imageSize(render_target);
+
+	const vec2 uv = vec2(gl_GlobalInvocationID.xy) / render_target_size;
+
+	const vec2 trans = 2.0 * uv - vec2(1.0, 1.0);
+
+    const vec3 dir = (camera.dir + camera.right * trans.x + camera.up * trans.y) * vec2(aspect_ratio, 1.0).xyx;
+
+	// Shoot rays and compute final pixel color
+
+	vec4 final_color = {0.0, 0.0, 0.0, 1.0};
+
+	const Ray primary_ray = { camera.pos, normalize(dir) };
+
+	Intersection primary_intersect;
+	primary_intersect.t = 1000;
+
+	// Check if primary ray intersects any primitives
+	if (trace_ray(primary_ray, primary_intersect))
+	{
+		const vec3 V = normalize(camera.pos - primary_intersect.P);
+
+		for (uint i = 0; i < LIGHT_COUNT; ++i)
+		{
+			const float t_light = length(lights[i].P - primary_intersect.P);
+
+			const vec3 L = normalize(lights[i].P - primary_intersect.P);
+
+			const Ray shadow_ray = { primary_intersect.P, L };
+
+			Intersection shadow_intersection;
+			shadow_intersection.t = t_light;;
+
+			// Check if this light directly illuminates this primitive
+			if (trace_ray(shadow_ray, shadow_intersection) == false)
+			{
+				// Material info baked into shading process... Yuck :(
+
+				const vec3  albedo = vec3(1.0, 0.0, 0.0);
+
+				const float roughness = 0.5;
+				const float metalness = 0.0;
+
+				// PBR calculations
+
+				vec3 F0 = vec3(0.04);
+
+				F0 = mix(F0, albedo, metalness);
+
+				const vec3  H = normalize(V + L);
+				const float attenuation = 1.0 / (t_light * t_light);
+				const vec3  radiance = lights[i].color * attenuation;
+
+				const float NDF = distribution_ggx(primary_intersect.N, H, roughness);
+				const float G   = geometry_smith(primary_intersect.N, V, L, roughness);
+				const vec3  F   = fresnel_schlick(max(dot(H, V), 0.0), F0);
+
+				const vec3  nominator   = NDF * G * F;
+				const float denominator = 4 * max(dot(primary_intersect.N, V), 0.0) * max(dot(primary_intersect.N, L), 0.0) + 0.001; // 0.001 to prevent divide by zero.
+				const vec3  specular    = nominator / denominator;
+
+				const vec3 kS = F;
+
+				vec3 kD = vec3(1.0) - kS;
+
+				kD *= 1.0 - metalness;
+
+				const float NdotL = max(dot(primary_intersect.N, L), 0.0);
+
+				// Contribute light source to final pixel color
+
+				final_color += vec4((kD * albedo / PI + specular) * radiance * NdotL, 1.0);
+			}
+		}
+	}
+
+	// Store our traced pixel
+
+	imageStore(render_target, ivec2(gl_GlobalInvocationID.xy), final_color);
+}

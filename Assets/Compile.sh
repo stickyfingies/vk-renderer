@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 
-~/Documents/1.1.97.0/x86_64/bin/glslangValidator -V Fullscreen.vert
-~/Documents/1.1.97.0/x86_64/bin/glslangValidator -V Fullscreen.frag
-~/Documents/1.1.97.0/x86_64/bin/glslangValidator -V Raytracer.comp
+glslangValidator -V Fullscreen.vert -o Compiled/Fullscreen.vert.spv
+glslangValidator -V Fullscreen.frag -o Compiled/Fullscreen.frag.spv
+glslangValidator -V Raytracer.comp  -o Compiled/Raytracer.comp.spv
+glslangValidator -V Tracer.comp     -o Compiled/Tracer.comp.spv
