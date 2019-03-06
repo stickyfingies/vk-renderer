@@ -14,6 +14,8 @@ struct FrameData
 {
 	alignas(4) float aspect_ratio;
 
+	alignas(4) float seed;
+
 	alignas(16) glm::vec3 light_pos;
 
 	alignas(16) CameraData camera;

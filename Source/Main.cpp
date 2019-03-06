@@ -104,7 +104,7 @@ int main()
 			.swapchainSize  = 3,
 			.framesInFlight = 2,
 
-			.raytrace_resolution = 2048,
+			.raytrace_resolution = 512,
 
 			.debug = true
 		};
@@ -177,7 +177,7 @@ int main()
 		// Point being, please uncomment this next line unless
 		// performance depends on it.
 
-		std::this_thread::sleep_for(std::chrono::milliseconds(12));
+		// std::this_thread::sleep_for(std::chrono::milliseconds(12));
 	}
 
 	// Uninitialize

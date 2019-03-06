@@ -1082,6 +1082,8 @@ void GraphicsDevice::Draw(const FrameData & frame_data)
 
 		frame_data_real.aspect_ratio = static_cast<float>(state.swapchain.extent.width) / static_cast<float>(state.swapchain.extent.height);
 
+		frame_data_real.seed = glfwGetTime();
+
 		vkCmdPushConstants(command_buffer, state.compute_pipeline_layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(FrameData), &frame_data_real);
 
 		vkCmdDispatch(command_buffer, state.RAYTRACE_RESOLUTION / 16, state.RAYTRACE_RESOLUTION / 16, 1);
