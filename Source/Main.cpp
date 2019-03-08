@@ -104,7 +104,7 @@ int main()
 			.swapchainSize  = 3,
 			.framesInFlight = 2,
 
-			.raytrace_resolution = 512,
+			.raytrace_resolution = 1024,
 
 			.debug = true
 		};

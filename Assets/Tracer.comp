@@ -48,15 +48,18 @@ struct Ray
 	vec3 dir;
 };
 
-const uint MATERIAL_TYPE_DIFFUSE    = 0;
-const uint MATERIAL_TYPE_REFLECTIVE = 1;
+const uint MAT_TYPE_DIFFUSE = 0; // Diffuse and specular
+const uint MAT_TYPE_REFLECT = 1; // Behaves like a mirror
 
 struct Material
 {
+	/// @brief Base color of object
 	vec3 albedo;
 
+	/// @brief Color emissed by object regardless of lighting
 	vec3 emissive;
 
+	/// @brief Determines how object-light interactions should be handled
 	uint type;
 };
 
@@ -127,6 +130,12 @@ struct Plane
 
 
 
+/////
+// Shader Communication
+/////
+
+
+
 layout (local_size_x = 16, local_size_y = 16) in;
 
 layout (set = 0, binding = 0, rgba8) uniform writeonly image2D render_target;
@@ -148,44 +157,45 @@ layout (push_constant) uniform FrameData
 
 
 
+/////
+// Constants
+/////
+
+
+
 const float PI      = 3.14159265359;
 const float EPSILON = 1e-3;
 
-const float DEPTH   = 3;
-const float SAMPLES = 64;
+const float DEPTH   = 4;
+const float SAMPLES = 4;
 
 const uint LIGHT_COUNT  = 1;
 const uint SPHERE_COUNT = 3;
-const uint PLANE_COUNT  = 5;
+const uint PLANE_COUNT  = 1;
 
-const Material white_floor = { vec3(1.0, 1.0, 1.0),    vec3(0.0), MATERIAL_TYPE_DIFFUSE };
-const Material red_wall    = { vec3(0.75, 0.25, 0.25), vec3(0.0), MATERIAL_TYPE_DIFFUSE };
-const Material green_wall  = { vec3(0.25, 0.75, 0.25), vec3(0.0), MATERIAL_TYPE_DIFFUSE };
-const Material blue_wall   = { vec3(0.25, 0.25, 0.75), vec3(0.0), MATERIAL_TYPE_DIFFUSE };
-const Material red_metal   = { vec3(0.75, 0.25, 0.25), vec3(0.0), MATERIAL_TYPE_DIFFUSE };
-const Material blue_metal  = { vec3(0.25, 0.25, 0.75), vec3(30.0), MATERIAL_TYPE_DIFFUSE };
+const Material matte_white = { vec3(1.0, 1.0, 1.0), vec3(0.0), MAT_TYPE_DIFFUSE };
+const Material matte_blue  = { vec3(0.25, 0.25, 0.75), vec3(0.0), MAT_TYPE_DIFFUSE };
 
-Light lights[LIGHT_COUNT] =
-{
-	{ vec3(44.0, 128.3, 24.0), vec3(16000.0, 16000.0, 16000.0) }
-};
+const Material mirror = { vec3(1.0, 0.5, 0.5), vec3(0.0),  MAT_TYPE_REFLECT };
+const Material light  = { vec3(1.0, 1.0, 1.0), vec3(48.0), MAT_TYPE_DIFFUSE };
 
 Sphere spheres[SPHERE_COUNT] =
 {
-	{ red_metal,  vec3(16.0, 16.3, 16.0), 16.0 },
-	{ blue_metal, vec3(0.0, 128.0 - 12.0, 0.0), 12.0 },
-	{ red_metal,  vec3(-12.0, 12.3, 24.0), 12.0 }
+	{ mirror,  vec3(72.0, 16.0, 12.0), 16.0 },
+	{ light, vec3(0.0, 96.0, 0.0), 12.0 },
+	{ matte_blue,  vec3(-12.0, 12.0, -72.0), 12.0 }
 };
 
 Plane planes[PLANE_COUNT] =
 {
-	{ white_floor, vec3(0.0, 1.0, 0.0), 0.0 },
-	{ white_floor, vec3(0.0, -1.0, 0.0), 128.0 },
-	{ red_wall,    vec3(1.0, 0.0, 0.0), 64.0 },
-	{ green_wall,  vec3(0.0, 0.0, -1.0), 64.0 },
-	{ blue_wall,   vec3(-1.0, 0.0, 0.0), 64.0 }
+	{ matte_white, vec3(0.0, 1.0, 0.0), 0.0 },
 };
 
+
+
+/////
+// Functions
+/////
 
 
 float rand(in vec2 co)
@@ -196,6 +206,16 @@ float rand(in vec2 co)
 float rand_salt = 0.0;
 
 float rand() { return fract(sin(++rand_salt) * 43758.5453123); }
+
+float when_eq(in float x, in float y)
+{
+	return 1.0 - abs(sign(x - y));
+}
+
+float when_neq(in float x, in float y)
+{
+	return abs(sign(x - y));
+}
 
 vec3 jitter(in vec3 d, in float phi, in float sina, in float cosa)
 {
@@ -232,14 +252,9 @@ float calc_plane_intersect(in Ray ray, in Plane plane)
 {
 	float d = dot(ray.dir, plane.N);
 
-	if (d == 0.0)
-	{
-		return 0.0;
-	}
-
 	float dist = -(plane.len + dot(ray.origin, plane.N)) / d;
 
-	return max(dist, 0.0);
+	return when_neq(d, 0.0) * max(dist, 0.0);
 }
 
 bool trace_ray(in Ray ray, inout Intersection intersect)
@@ -250,7 +265,7 @@ bool trace_ray(in Ray ray, inout Intersection intersect)
 	{
 		const float t = calc_sphere_intersect(ray, spheres[i]);
 
-		if ((t > EPSILON) && (t < intersect.t - EPSILON))
+		if ((t > EPSILON) && (t < intersect.t + EPSILON))
 		{
 			intersect.mat = spheres[i].mat;
 
@@ -288,42 +303,67 @@ vec3 radiance(in Ray ray)
 
 	for (uint depth = 0; depth < DEPTH; ++depth)
 	{
+		acc = clamp(acc, vec3(0.0), vec3(1.0));
+
 		Intersection intersect;
-		intersect.t = 1000;
+		intersect.t = 3000 / pow(depth + 1, 3);
 		if (trace_ray(ray, intersect) == false) break;
 
 		Material mat = intersect.mat;
 
-		const float r2 = rand();
-		const vec3  d  = jitter(intersect.N, 2.0 * PI * rand(), sqrt(r2), sqrt(1.0 - r2));
-
-		vec3  e = { 0.0, 0.0, 0.0 };
-
-		for (uint i = 0; i < SPHERE_COUNT; ++i)
+		switch (mat.type)
 		{
-			Sphere s = spheres[i];
-
-			if (s.mat.emissive == vec3(0.0)) continue;
-
-			const float t = length(s.P - intersect.P);
-
-			const vec3  l0        = s.P - intersect.P;
-			const float cos_a_max = sqrt(1.0 - clamp(s.r * s.r / dot(l0, l0), 0.0, 1.0));
-			const float cosa      = mix(cos_a_max, 1.0, rand());
-			const vec3  l         = jitter(l0, 2.0 * PI * rand(), sqrt(1.0 - cosa * cosa), cosa);
-
-			Intersection shadow_intersection;
-			shadow_intersection.t = t;
-			if (trace_ray(Ray(intersect.P, l), shadow_intersection) == false)
+			case MAT_TYPE_DIFFUSE:
 			{
-				const float omega = 2.0 * PI * (1.0 - cos_a_max);
-				e += (s.mat.emissive * clamp(dot(l, intersect.N),0.0,1.0) * omega) / PI;
+				const float r2 = rand();
+				const vec3  d  = jitter(intersect.N, 2.0 * PI * rand(), sqrt(r2), sqrt(1.0 - r2));
+
+				vec3  e = { 0.0, 0.0, 0.0 };
+
+				for (uint i = 0; i < SPHERE_COUNT; ++i)
+				{
+					Sphere s = spheres[i];
+
+					if (s.mat.emissive == vec3(0.0)) continue;
+
+					const float t = length(s.P - intersect.P) - s.r;
+
+					const vec3  l0        = s.P - intersect.P;
+					const float cos_a_max = sqrt(1.0 - clamp(s.r * s.r / dot(l0, l0), 0.0, 1.0));
+					const float cosa      = mix(cos_a_max, 1.0, rand());
+					const vec3  L         = jitter(l0, 2.0 * PI * rand(), sqrt(1.0 - cosa * cosa), cosa);
+
+					const vec3 attenuation = s.mat.emissive / (pow((t / (s.r)) + 1, 2));
+
+					Intersection shadow_intersection;
+					shadow_intersection.t = t;
+					if (trace_ray(Ray(intersect.P, L), shadow_intersection) == false)
+					{
+						const float omega = 2.0 * PI * (1.0 - cos_a_max);
+
+						const vec3  R = reflect(ray.dir, intersect.N);
+
+						const float specular = pow(max(dot(R, L), 0.0), 32.0);
+						const float diffuse  = dot(L, intersect.N);
+
+						e += attenuation * (s.mat.emissive * clamp(diffuse + specular, 0.0, 1.0 / omega) * omega) / PI;
+					}
+				}
+
+				acc  += 1 * mask * mat.emissive + mask * mat.albedo * e;
+				mask *= (1.0 / (depth + 1)) * mat.albedo;
+				ray   = Ray(intersect.P, d);
+				break;
+			}
+			case MAT_TYPE_REFLECT:
+			{
+				acc  += mat.emissive * mask;
+				mask *= mat.albedo;
+
+				ray   = Ray(intersect.P, reflect(ray.dir, intersect.N));
+				break;
 			}
 		}
-
-		acc  += mask * mat.emissive * 1.0 + mask * mat.albedo * e;
-		mask *= mat.albedo;
-		ray   = Ray(intersect.P, d);
 	}
 
 	return acc;
