@@ -89,7 +89,13 @@ struct VulkanState
 
 	VkDeviceMemory raytrace_storage_image_memory;
 
-	/// @note Single threaded
+	std::vector<VkImage>        traced_images; // 0 is current, 1 is previous
+	std::vector<VkImageView>    traced_image_views;
+	std::vector<VkDeviceMemory> traced_image_memory;
+
+	std::vector<VkDescriptorSet> graphics_descsets;
+	std::vector<VkDescriptorSet> compute_descsets;
+
 	std::vector<VkCommandPool> commandPools;
 
 	std::vector<VkCommandBuffer> commandBuffers;

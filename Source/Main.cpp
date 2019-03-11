@@ -22,7 +22,7 @@ namespace
 
 static void poll_keyboard(GLFWwindow * window, float delta_time)
 {
-	const float sensitivity = 81.0f;
+	const float sensitivity = 111.0f;
 
 	if (glfwGetKey(window, GLFW_KEY_W))
 	{

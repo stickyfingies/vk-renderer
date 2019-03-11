@@ -4,7 +4,9 @@
 #include <GLFW/glfw3.h>
 
 #include <algorithm>
+#include <cstdlib>
 #include <cstring>
+#include <ctime>
 #include <fstream>
 #include <iostream>
 #include <unordered_map>
@@ -578,36 +580,42 @@ GraphicsDevice::Error GraphicsDevice::Construct(const GraphicsDevice::CreateInfo
 
 	// Create shader resources
 	{
-		VkImageCreateInfo raytrace_image_info{VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO};
+		state.traced_images.resize(state.FRAMES_IN_FLIGHT);
+		state.traced_image_memory.resize(state.FRAMES_IN_FLIGHT);
 
-		raytrace_image_info.imageType = VK_IMAGE_TYPE_2D;
-		raytrace_image_info.format    = VK_FORMAT_R8G8B8A8_UNORM;
-		raytrace_image_info.tiling    = VK_IMAGE_TILING_OPTIMAL;
-		raytrace_image_info.usage     = VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_STORAGE_BIT;
-		raytrace_image_info.samples   = VK_SAMPLE_COUNT_1_BIT;
+		for (unsigned int i = 0; i < state.FRAMES_IN_FLIGHT; ++i)
+		{
+			VkImageCreateInfo raytrace_image_info{VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO};
 
-		raytrace_image_info.sharingMode   = VK_SHARING_MODE_EXCLUSIVE;
-		raytrace_image_info.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+			raytrace_image_info.imageType = VK_IMAGE_TYPE_2D;
+			raytrace_image_info.format    = VK_FORMAT_R8G8B8A8_UNORM;
+			raytrace_image_info.tiling    = VK_IMAGE_TILING_OPTIMAL;
+			raytrace_image_info.usage     = VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_STORAGE_BIT;
+			raytrace_image_info.samples   = VK_SAMPLE_COUNT_1_BIT;
 
-		raytrace_image_info.extent.width  = static_cast<uint32_t>(state.RAYTRACE_RESOLUTION);
-		raytrace_image_info.extent.height = static_cast<uint32_t>(state.RAYTRACE_RESOLUTION);
-		raytrace_image_info.extent.depth  = 1;
+			raytrace_image_info.sharingMode   = VK_SHARING_MODE_EXCLUSIVE;
+			raytrace_image_info.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
 
-		raytrace_image_info.mipLevels   = 1;
-		raytrace_image_info.arrayLayers = 1;
+			raytrace_image_info.extent.width  = static_cast<uint32_t>(state.RAYTRACE_RESOLUTION);
+			raytrace_image_info.extent.height = static_cast<uint32_t>(state.RAYTRACE_RESOLUTION);
+			raytrace_image_info.extent.depth  = 1;
 
-		vkCreateImage(state.device, &raytrace_image_info, nullptr, &state.raytrace_storage_image);
+			raytrace_image_info.mipLevels   = 1;
+			raytrace_image_info.arrayLayers = 1;
 
-		VkMemoryRequirements raytrace_image_mem_reqs;
-		vkGetImageMemoryRequirements(state.device, state.raytrace_storage_image, &raytrace_image_mem_reqs);
+			vkCreateImage(state.device, &raytrace_image_info, nullptr, &state.traced_images[i]);
 
-		VkMemoryAllocateInfo raytrace_image_alloc_info{VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO};
-		raytrace_image_alloc_info.allocationSize  = raytrace_image_mem_reqs.size;
-		raytrace_image_alloc_info.memoryTypeIndex = find_memory_type(raytrace_image_mem_reqs.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+			VkMemoryRequirements raytrace_image_mem_reqs;
+			vkGetImageMemoryRequirements(state.device, state.traced_images[i], &raytrace_image_mem_reqs);
 
-		vkAllocateMemory(state.device, &raytrace_image_alloc_info, nullptr, &state.raytrace_storage_image_memory);
+			VkMemoryAllocateInfo raytrace_image_alloc_info{VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO};
+			raytrace_image_alloc_info.allocationSize  = raytrace_image_mem_reqs.size;
+			raytrace_image_alloc_info.memoryTypeIndex = find_memory_type(raytrace_image_mem_reqs.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
 
-		vkBindImageMemory(state.device, state.raytrace_storage_image, state.raytrace_storage_image_memory, 0);
+			vkAllocateMemory(state.device, &raytrace_image_alloc_info, nullptr, &state.traced_image_memory[i]);
+
+			vkBindImageMemory(state.device, state.traced_images[i], state.traced_image_memory[i], 0);
+		}
 
 		VkCommandBufferAllocateInfo allocInfo{VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO};
 		allocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
@@ -622,13 +630,14 @@ GraphicsDevice::Error GraphicsDevice::Construct(const GraphicsDevice::CreateInfo
 
 		vkBeginCommandBuffer(commandBuffer, &beginInfo);
 
+		for (unsigned int i = 0; i < state.FRAMES_IN_FLIGHT; ++i)
 		{
 			VkImageMemoryBarrier barrier{VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER};
 			barrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
 			barrier.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 			barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
 			barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-			barrier.image = state.raytrace_storage_image;
+			barrier.image = state.traced_images[i];
 			barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
 			barrier.subresourceRange.baseMipLevel = 0;
 			barrier.subresourceRange.levelCount = 1;
@@ -658,19 +667,24 @@ GraphicsDevice::Error GraphicsDevice::Construct(const GraphicsDevice::CreateInfo
 
 		vkFreeCommandBuffers(state.device, state.commandPools[0], 1, &commandBuffer);
 
-		VkImageViewCreateInfo raytrace_image_view_info{VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};
+		state.traced_image_views.resize(state.FRAMES_IN_FLIGHT);
 
-		raytrace_image_view_info.image    = state.raytrace_storage_image;
-		raytrace_image_view_info.viewType = VK_IMAGE_VIEW_TYPE_2D;
-		raytrace_image_view_info.format   = VK_FORMAT_R8G8B8A8_UNORM;
+		for (unsigned int i = 0; i < state.FRAMES_IN_FLIGHT; ++i)
+		{
+			VkImageViewCreateInfo raytrace_image_view_info{VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};
 
-		raytrace_image_view_info.subresourceRange.aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT;
-		raytrace_image_view_info.subresourceRange.baseMipLevel   = 0;
-		raytrace_image_view_info.subresourceRange.levelCount     = 1;
-		raytrace_image_view_info.subresourceRange.baseArrayLayer = 0;
-		raytrace_image_view_info.subresourceRange.layerCount     = 1;
+			raytrace_image_view_info.image    = state.traced_images[i];
+			raytrace_image_view_info.viewType = VK_IMAGE_VIEW_TYPE_2D;
+			raytrace_image_view_info.format   = VK_FORMAT_R8G8B8A8_UNORM;
 
-		vkCreateImageView(state.device, &raytrace_image_view_info, nullptr, &state.raytrace_storage_image_view);
+			raytrace_image_view_info.subresourceRange.aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT;
+			raytrace_image_view_info.subresourceRange.baseMipLevel   = 0;
+			raytrace_image_view_info.subresourceRange.levelCount     = 1;
+			raytrace_image_view_info.subresourceRange.baseArrayLayer = 0;
+			raytrace_image_view_info.subresourceRange.layerCount     = 1;
+
+			vkCreateImageView(state.device, &raytrace_image_view_info, nullptr, &state.traced_image_views[i]);
+		}
 
 		VkSamplerCreateInfo raytrace_image_sampler_info{VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO};
 
@@ -709,9 +723,19 @@ GraphicsDevice::Error GraphicsDevice::Construct(const GraphicsDevice::CreateInfo
 		blit_sampler_binding.descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
 		blit_sampler_binding.descriptorCount = 1;
 
+		VkDescriptorSetLayoutBinding prev_frame_sampler_binding{};
+
+		prev_frame_sampler_binding.binding    = 1;
+		prev_frame_sampler_binding.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+
+		prev_frame_sampler_binding.descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+		prev_frame_sampler_binding.descriptorCount = 1;
+
+		const VkDescriptorSetLayoutBinding set_bindings[] = { blit_sampler_binding, prev_frame_sampler_binding };
+
 		VkDescriptorSetLayoutCreateInfo layout_info{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
-		layout_info.bindingCount = 1;
-		layout_info.pBindings    = &blit_sampler_binding;
+		layout_info.bindingCount = 2;
+		layout_info.pBindings    = set_bindings;
 
 		vkCreateDescriptorSetLayout(state.device, &layout_info, nullptr, &state.graphics_descset_layout);
 
@@ -719,40 +743,45 @@ GraphicsDevice::Error GraphicsDevice::Construct(const GraphicsDevice::CreateInfo
 
 		pool_size.type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
 
-		pool_size.descriptorCount = static_cast<uint32_t>(state.swapchain.imageViews.size());
+		pool_size.descriptorCount = static_cast<uint32_t>(2 * state.FRAMES_IN_FLIGHT);
 
 		VkDescriptorPoolCreateInfo pool_info{VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
 
 		pool_info.poolSizeCount = 1;
 		pool_info.pPoolSizes    = &pool_size;
-		pool_info.maxSets       = static_cast<uint32_t>(state.swapchain.imageViews.size());
+		pool_info.maxSets       = static_cast<uint32_t>(state.FRAMES_IN_FLIGHT);
 
 		vkCreateDescriptorPool(state.device, &pool_info, nullptr, &state.graphics_desc_pool);
+
+		state.graphics_descsets.resize(1);
 
 		VkDescriptorSetAllocateInfo alloc_info{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO};
 		alloc_info.descriptorPool     = state.graphics_desc_pool;
 		alloc_info.descriptorSetCount = 1;
 		alloc_info.pSetLayouts        = &state.graphics_descset_layout;
 
-		vkAllocateDescriptorSets(state.device, &alloc_info, &state.graphics_descset);
+		vkAllocateDescriptorSets(state.device, &alloc_info, &state.graphics_descsets[0]);
 
-		VkDescriptorImageInfo image_info{};
+		for (unsigned int i = 0; i < 2; ++i)
+		{
+			VkDescriptorImageInfo image_info{};
 
-		image_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+			image_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 
-		image_info.imageView = state.raytrace_storage_image_view;
-		image_info.sampler   = state.raytrace_storage_image_sampler;
+			image_info.imageView = state.traced_image_views[i];
+			image_info.sampler   = state.raytrace_storage_image_sampler;
 
-		VkWriteDescriptorSet descriptor_write{VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
+			VkWriteDescriptorSet descriptor_write{VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
 
-		descriptor_write.dstSet = state.graphics_descset;
-		descriptor_write.dstBinding = 0;
-		descriptor_write.dstArrayElement = 0;
-		descriptor_write.descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-		descriptor_write.descriptorCount = 1;
-		descriptor_write.pImageInfo = &image_info;
+			descriptor_write.dstSet = state.graphics_descsets[0];
+			descriptor_write.dstBinding = i;
+			descriptor_write.dstArrayElement = 0;
+			descriptor_write.descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+			descriptor_write.descriptorCount = 1;
+			descriptor_write.pImageInfo = &image_info;
 
-		vkUpdateDescriptorSets(state.device, 1, &descriptor_write, 0, nullptr);
+			vkUpdateDescriptorSets(state.device, 1, &descriptor_write, 0, nullptr);
+		}
 	}
 
 	// Create compute descriptors
@@ -775,40 +804,47 @@ GraphicsDevice::Error GraphicsDevice::Construct(const GraphicsDevice::CreateInfo
 
 		pool_size.type = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
 
-		pool_size.descriptorCount = 1;
+		pool_size.descriptorCount = static_cast<unsigned int>(state.FRAMES_IN_FLIGHT);
 
 		VkDescriptorPoolCreateInfo pool_info{VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
 
 		pool_info.poolSizeCount = 1;
 		pool_info.pPoolSizes    = &pool_size;
-		pool_info.maxSets       = 1;
+		pool_info.maxSets       = static_cast<unsigned int>(state.FRAMES_IN_FLIGHT);
 
 		vkCreateDescriptorPool(state.device, &pool_info, nullptr, &state.compute_desc_pool);
 
+		state.compute_descsets.resize(state.FRAMES_IN_FLIGHT);
+
+		const VkDescriptorSetLayout set_layouts[] = { state.compute_descset_layout, state.compute_descset_layout };
+
 		VkDescriptorSetAllocateInfo alloc_info{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO};
 		alloc_info.descriptorPool     = state.compute_desc_pool;
-		alloc_info.descriptorSetCount = 1;
-		alloc_info.pSetLayouts        = &state.compute_descset_layout;
+		alloc_info.descriptorSetCount = 2;
+		alloc_info.pSetLayouts        = set_layouts;
 
-		vkAllocateDescriptorSets(state.device, &alloc_info, &state.compute_descset);
+		vkAllocateDescriptorSets(state.device, &alloc_info, state.compute_descsets.data());
 
-		VkDescriptorImageInfo image_info{};
+		for (unsigned int i = 0; i < state.FRAMES_IN_FLIGHT; ++i)
+		{
+			VkDescriptorImageInfo image_info{};
 
-		image_info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+			image_info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
 
-		image_info.imageView = state.raytrace_storage_image_view;
-		image_info.sampler   = state.raytrace_storage_image_sampler;
+			image_info.imageView = state.traced_image_views[i];
+			image_info.sampler   = state.raytrace_storage_image_sampler;
 
-		VkWriteDescriptorSet descriptor_write{VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
+			VkWriteDescriptorSet descriptor_write{VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
 
-		descriptor_write.dstSet = state.compute_descset;
-		descriptor_write.dstBinding = 0;
-		descriptor_write.dstArrayElement = 0;
-		descriptor_write.descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
-		descriptor_write.descriptorCount = 1;
-		descriptor_write.pImageInfo = &image_info;
+			descriptor_write.dstSet = state.compute_descsets[i];
+			descriptor_write.dstBinding = 0;
+			descriptor_write.dstArrayElement = 0;
+			descriptor_write.descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+			descriptor_write.descriptorCount = 1;
+			descriptor_write.pImageInfo = &image_info;
 
-		vkUpdateDescriptorSets(state.device, 1, &descriptor_write, 0, nullptr);
+			vkUpdateDescriptorSets(state.device, 1, &descriptor_write, 0, nullptr);
+		}
 	}
 
 	// Create graphics pipeline
@@ -974,6 +1010,8 @@ GraphicsDevice::Error GraphicsDevice::Construct(const GraphicsDevice::CreateInfo
 		vkDestroyShaderModule(state.device, comp_shader_module, nullptr);
 	}
 
+	srand(static_cast<unsigned int>(time(0)));
+
 	return Error::SUCCESS;
 }
 
@@ -1005,9 +1043,24 @@ GraphicsDevice::Error GraphicsDevice::Destruct()
 
 	vkDestroyImageView(state.device, state.raytrace_storage_image_view, nullptr);
 
+	for (const auto & image_view : state.traced_image_views)
+	{
+		vkDestroyImageView(state.device, image_view, nullptr);
+	}
+
 	vkDestroyImage(state.device, state.raytrace_storage_image, nullptr);
 
 	vkFreeMemory(state.device, state.raytrace_storage_image_memory, nullptr);
+
+	for (const auto & image : state.traced_images)
+	{
+		vkDestroyImage(state.device, image, nullptr);
+	}
+
+	for (const auto & memory : state.traced_image_memory)
+	{
+		vkFreeMemory(state.device, memory, nullptr);
+	}
 
 	for (const auto & framebuffer : state.swapchain.framebuffers)
 	{
@@ -1059,7 +1112,7 @@ void GraphicsDevice::Draw(const FrameData & frame_data)
 		imageMemoryBarrier.oldLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 		imageMemoryBarrier.newLayout = VK_IMAGE_LAYOUT_GENERAL;
 
-		imageMemoryBarrier.image = state.raytrace_storage_image;
+		imageMemoryBarrier.image = state.traced_images[state.currentFrame];
 
 		imageMemoryBarrier.subresourceRange = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
 		imageMemoryBarrier.srcAccessMask    = VK_ACCESS_SHADER_WRITE_BIT;
@@ -1076,13 +1129,13 @@ void GraphicsDevice::Draw(const FrameData & frame_data)
 
 		vkCmdBindPipeline(command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, state.compute_pipeline);
 
-		vkCmdBindDescriptorSets(command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, state.compute_pipeline_layout, 0, 1, &state.compute_descset, 0, nullptr);
+		vkCmdBindDescriptorSets(command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, state.compute_pipeline_layout, 0, 1, &state.compute_descsets[state.currentFrame], 0, nullptr);
 
 		FrameData frame_data_real = frame_data;
 
 		frame_data_real.aspect_ratio = static_cast<float>(state.swapchain.extent.width) / static_cast<float>(state.swapchain.extent.height);
 
-		frame_data_real.seed = glfwGetTime();
+		frame_data_real.seed = static_cast<float>(rand()) / static_cast<float>(RAND_MAX);
 
 		vkCmdPushConstants(command_buffer, state.compute_pipeline_layout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(FrameData), &frame_data_real);
 
@@ -1091,7 +1144,7 @@ void GraphicsDevice::Draw(const FrameData & frame_data)
 		imageMemoryBarrier.oldLayout = VK_IMAGE_LAYOUT_GENERAL;
 		imageMemoryBarrier.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 
-		imageMemoryBarrier.image = state.raytrace_storage_image;
+		imageMemoryBarrier.image = state.traced_images[state.currentFrame];
 
 		imageMemoryBarrier.subresourceRange = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
 		imageMemoryBarrier.srcAccessMask    = VK_ACCESS_SHADER_WRITE_BIT;
@@ -1123,7 +1176,7 @@ void GraphicsDevice::Draw(const FrameData & frame_data)
 
 			vkCmdBindPipeline(command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, state.graphics_pipeline);
 
-			vkCmdBindDescriptorSets(command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, state.graphics_pipeline_layout, 0, 1, &state.graphics_descset, 0, nullptr);
+			vkCmdBindDescriptorSets(command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, state.graphics_pipeline_layout, 0, 1, &state.graphics_descsets[0], 0, nullptr);
 
 			vkCmdDraw(command_buffer, 3, 1, 0, 0);
 
