@@ -164,7 +164,7 @@ const float PI      = 3.14159265359;
 const float EPSILON = 1e-3;
 
 const float DEPTH    = 4;
-const float SAMPLES  = 8;
+const float SAMPLES  = 16;
 
 const uint SPHERE_COUNT = 4;
 const uint PLANE_COUNT  = 1;
@@ -172,16 +172,16 @@ const uint PLANE_COUNT  = 1;
 const Material matte_white = { vec3(1.0, 1.0, 1.0),    vec3(0.0), 0.4, MAT_TYPE_DIFFUSE };
 const Material matte_blue  = { vec3(0.25, 0.25, 0.75), vec3(0.0), 0.4, MAT_TYPE_DIFFUSE };
 
-const Material mirror = { vec3(1.0, 0.5, 0.5), vec3(0.0),  0.0, MAT_TYPE_REFLECT };
-const Material glass  = { vec3(1.0, 1.0, 1.0), vec3(0.0),  0.9, MAT_TYPE_DIELECTRIC };
-const Material light  = { vec3(1.0, 1.0, 1.0), vec3(48.0), 1.0, MAT_TYPE_DIFFUSE };
+const Material mirror = { vec3(1.0, 0.5, 0.5), vec3(0.0),   0.0, MAT_TYPE_REFLECT };
+const Material glass  = { vec3(1.0, 1.0, 1.0), vec3(0.0),   0.9, MAT_TYPE_DIELECTRIC };
+const Material light  = { vec3(1.0, 1.0, 1.0), vec3(128.0), 1.0, MAT_TYPE_DIFFUSE };
 
 Sphere spheres[SPHERE_COUNT] =
 {
 	{ mirror, vec3(72.0, 16.0, 12.0), 16.0 },
 	{ light, vec3(0.0, 96.0, 0.0), 12.0 },
 	{ matte_blue, vec3(-12.0, 12.0, -72.0), 12.0 },
-	{ glass, vec3(18.0, 24.0, -9.0), 12.0 }
+	{ glass, vec3(-39.0, 24.0, 29.0), 12.0 }
 };
 
 Plane planes[PLANE_COUNT] =

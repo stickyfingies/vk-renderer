@@ -35,6 +35,12 @@ struct Swapchain
 	std::vector<VkFramebuffer> framebuffers;
 };
 
+struct RasterPipeline
+{
+	VkPipelineLayout layout;
+	VkPipeline pipeline;
+};
+
 /**
  * @brief Full state of vulkan backend
  *
@@ -61,10 +67,10 @@ struct VulkanState
 
 	VkRenderPass render_pass;
 
-	VkPipeline graphics_pipeline;
 	VkPipeline compute_pipeline;
 
-	VkPipelineLayout graphics_pipeline_layout;
+	RasterPipeline filter_pso;
+
 	VkPipelineLayout compute_pipeline_layout;
 
 	VkQueue graphicsQueue;

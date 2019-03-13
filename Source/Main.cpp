@@ -56,6 +56,11 @@ static void key_callback(GLFWwindow * window, int key, int scancode, int action,
 	{
 		locked_to_camera = !locked_to_camera;
 	}
+
+	if (key == GLFW_KEY_GRAVE_ACCENT && action == GLFW_PRESS)
+	{
+		std::cout << camera.data.pos.x << ", " << camera.data.pos.y << ", " << camera.data.pos.z << " - " << camera.aux.pitch << ", " << camera.aux.yaw << std::endl;
+	}
 }
 
 static void mouse_callback(GLFWwindow * window, double pos_x, double pos_y)
@@ -126,7 +131,17 @@ int main()
 	float delta_time = 0.0f;
 	float last_frame = 0.0f;
 
+	camera.data.pos = { -48.0583, 28.1225, 90.9559 };
+
+	camera.aux.pitch = 1.50998;
+	camera.aux.yaw   = -421.35;
+
+	camera.update();
+
 	frame_data.light_pos  = glm::vec3(0.0f, 64.0f, 0.0f);
+	frame_data.camera = camera.data;
+
+	device.Draw(frame_data);
 
 	// Main game loop
 
