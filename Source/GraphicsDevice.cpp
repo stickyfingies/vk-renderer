@@ -13,6 +13,9 @@
 #include <unordered_set>
 #include <vector>
 
+#undef min
+#undef max
+
 static std::vector<char> ReadFile(const char * filename)
 {
 	std::ifstream file(filename, std::ios::ate | std::ios::binary);
@@ -218,6 +221,8 @@ RasterPipeline create_raster_pipeline(const char * vert_path, const char * frag_
 
 GraphicsDevice::Error GraphicsDevice::Construct(const GraphicsDevice::CreateInfo & info)
 {
+	std::cerr << __LINE__ << std::endl;
+
 	// Create instance
 	{
 		state.FRAMES_IN_FLIGHT    = info.framesInFlight;
@@ -233,7 +238,11 @@ GraphicsDevice::Error GraphicsDevice::Construct(const GraphicsDevice::CreateInfo
 		const char * extensionNames[]
 		{
 			VK_KHR_SURFACE_EXTENSION_NAME,
+			#ifdef WIN32
+			VK_KHR_WIN32_SURFACE_EXTENSION_NAME,
+			#else
 			VK_KHR_XCB_SURFACE_EXTENSION_NAME,
+			#endif
 			VK_EXT_DEBUG_UTILS_EXTENSION_NAME
 		};
 

@@ -104,14 +104,14 @@ int main()
 
 		const GraphicsDevice::CreateInfo info
 		{
-			.window = window,
+			window,
 
-			.swapchainSize  = 3,
-			.framesInFlight = 2,
+			3,
+			2,
 
-			.raytrace_resolution = 1024,
+			1024,
 
-			.debug = true
+			true
 		};
 
 		// Construct graphics device
