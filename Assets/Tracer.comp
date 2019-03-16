@@ -49,8 +49,7 @@ struct Ray
 };
 
 const uint MAT_TYPE_DIFFUSE    = 0; // Diffuse and specular
-const uint MAT_TYPE_REFLECT    = 1; // Behaves like a mirror
-const uint MAT_TYPE_DIELECTRIC = 2; // Glass, water
+const uint MAT_TYPE_DIELECTRIC = 1; // Glass, water
 
 /**
  * @struct Material
@@ -67,6 +66,8 @@ struct Material
 
 	/// @brief How rough the surface of the material is
 	float roughness;
+
+	float metalness;
 
 	/// @brief Determines how object-light interactions should be handled
 	uint type;
@@ -123,6 +124,13 @@ struct Plane
 	float len;
 };
 
+struct Triangle
+{
+	vec3 v0;
+	vec3 v1;
+	vec3 v2;
+};
+
 
 
 /////
@@ -134,6 +142,11 @@ struct Plane
 layout (local_size_x = 16, local_size_y = 16) in;
 
 layout (set = 0, binding = 0, rgba8) uniform writeonly image2D render_target;
+
+layout (std430, set = 0, binding = 1) buffer SceneData
+{
+	Triangle tris[];
+};
 
 layout (push_constant) uniform FrameData
 {
@@ -164,29 +177,37 @@ const float PI      = 3.14159265359;
 const float EPSILON = 1e-3;
 
 const float DEPTH    = 4;
-const float SAMPLES  = 16;
+const float SAMPLES  = 4;
 
-const uint SPHERE_COUNT = 4;
-const uint PLANE_COUNT  = 1;
+const uint SPHERE_COUNT   = 4;
+const uint PLANE_COUNT    = 5;
+const uint TRIANGLE_COUNT = 1;
 
-const Material matte_white = { vec3(1.0, 1.0, 1.0),    vec3(0.0), 0.4, MAT_TYPE_DIFFUSE };
-const Material matte_blue  = { vec3(0.25, 0.25, 0.75), vec3(0.0), 0.4, MAT_TYPE_DIFFUSE };
+const Material matte_white = { vec3(1.0, 1.0, 1.0),    vec3(0.0), 0.3, 0.7, MAT_TYPE_DIFFUSE};
+const Material matte_red   = { vec3(0.75, 0.25, 0.25), vec3(0.0), 0.4, 0.0, MAT_TYPE_DIFFUSE };
+const Material matte_green = { vec3(0.25, 0.75, 0.25), vec3(0.0), 0.4, 0.0, MAT_TYPE_DIFFUSE };
+const Material matte_blue  = { vec3(0.25, 0.25, 0.75), vec3(0.0), 0.4, 0.0, MAT_TYPE_DIFFUSE };
 
-const Material mirror = { vec3(1.0, 0.5, 0.5), vec3(0.0),   0.0, MAT_TYPE_REFLECT };
-const Material glass  = { vec3(1.0, 1.0, 1.0), vec3(0.0),   0.9, MAT_TYPE_DIELECTRIC };
-const Material light  = { vec3(1.0, 1.0, 1.0), vec3(128.0), 1.0, MAT_TYPE_DIFFUSE };
+const Material plastic = { vec3(0.25, 0.25, 0.75), vec3(0.0), 0.3,  0.6, MAT_TYPE_DIFFUSE };
+const Material mirror  = { vec3(1.0, 0.5, 0.5), vec3(0.0),    0.0,  1.0, MAT_TYPE_DIFFUSE};
+const Material glass   = { vec3(1.0, 1.0, 1.0), vec3(0.0),    0.42, 0.0, MAT_TYPE_DIELECTRIC };
+const Material light   = { vec3(1.0, 1.0, 1.0), vec3(128.0),  0.6,  0.0, MAT_TYPE_DIFFUSE };
 
 Sphere spheres[SPHERE_COUNT] =
 {
-	{ mirror, vec3(72.0, 16.0, 12.0), 16.0 },
+	{ glass, vec3(42.0, 16.0, 12.0), 16.0 },
 	{ light, vec3(0.0, 96.0, 0.0), 12.0 },
-	{ matte_blue, vec3(-12.0, 12.0, -72.0), 12.0 },
-	{ glass, vec3(-39.0, 24.0, 29.0), 12.0 }
+	{ mirror, vec3(-32.0, 24.0, 24.0), 24.0 },
+	{ plastic, vec3(-24.0, 11.0, -48.0), 11.0 }
 };
 
 Plane planes[PLANE_COUNT] =
 {
-	{ matte_white, vec3(0.0, 1.0, 0.0), 0.0 },
+	{ matte_white, vec3(0.0, 1.0, 0.0),  0.0 },
+	{ matte_white, vec3(0.0, -1.0, 0.0), 128.0 },
+	{ matte_red,   vec3(1.0, 0.0, 0.0),  64.0 },
+	{ matte_green, vec3(0.0, 0.0, -1.0), 64.0 },
+	{ matte_blue,  vec3(-1.0, 0.0, 0.0), 64.0 }
 };
 
 
@@ -316,9 +337,63 @@ float calc_plane_intersect(in Ray ray, in Plane plane)
 	return when_neq(d, 0.0) * max(dist, 0.0);
 }
 
+float calc_tri_intersect(in Ray ray, in Triangle tri)
+{
+	const vec3 v0v1 = tri.v1 - tri.v0;
+	const vec3 v0v2 = tri.v2 - tri.v0;
+	const vec3 pvec = cross(ray.dir, v0v2);
+
+	const float determinant = dot(v0v1, pvec);
+
+	if (determinant < EPSILON)
+	{
+		return -1.0;
+	}
+
+	const float inverse_determinant = 1 / determinant;
+
+	const vec3  tvec = ray.origin - tri.v0;
+	const float u    = dot(tvec, pvec) * inverse_determinant;
+
+	if (u < 0 || u > 1)
+	{
+		return -1.0;
+	}
+
+	const vec3  qvec = cross(tvec, v0v1);
+	const float v    = dot(ray.dir, qvec) * inverse_determinant;
+
+	if (v < 0 || u + v > 1)
+	{
+		return -1.0;
+	}
+
+	return dot(v0v2, qvec) * inverse_determinant;
+}
+
 bool trace_ray(in Ray ray, inout Intersection intersect)
 {
 	bool found = false;
+
+	for (uint i = 0; i < tris.length(); ++i)
+	{
+		const float t = calc_tri_intersect(ray, tris[i]);
+
+		if ((t > EPSILON) && (t < intersect.t + EPSILON))
+		{
+			intersect.t = t;
+
+			intersect.mat = mirror;
+			intersect.P   = ray.origin + t * ray.dir;
+
+			const vec3 u = tris[i].v1 - tris[i].v0;
+			const vec3 v = tris[i].v2 - tris[i].v0;
+
+			intersect.N = vec3((u.y * v.z) - (u.z * v.y), (u.z * v.x) - (u.x * v.z), (u.x * v.y) - (u.y * v.x));
+
+			found = true;
+		}
+	}
 
 	for (uint i = 0; i < SPHERE_COUNT; ++i)
 	{
@@ -376,7 +451,7 @@ vec3 radiance(in Ray ray)
 			case MAT_TYPE_DIFFUSE:
 			{
 				const float r2 = rand();
-				const vec3  d  = jitter(intersect.N, 2.0 * PI * rand(), sqrt(r2), sqrt(1.0 - r2));
+				const vec3  d  = jitter(intersect.N, 2.0 * PI * rand(), sqrt(r2), sqrt(1.0 - r2)) * (1.0 - mat.metalness);
 
 				vec3 e = { 0.0, 0.0, 0.0 };
 
@@ -404,7 +479,7 @@ vec3 radiance(in Ray ray)
     					attenuation = max(attenuation, 0);
 
 						vec3 F0 = vec3(0.04);
-						F0 = mix(F0, mat.albedo, 0.0);
+						F0 = mix(F0, mat.albedo, mat.metalness);
 
 						const vec3 V = normalize(camera.pos - intersect.P);
 						const vec3 H = normalize(V + L);
@@ -415,7 +490,8 @@ vec3 radiance(in Ray ray)
 						const vec3  F   = fresnel_schlick(max(dot(H, V), 0.0), F0);
 
 						const vec3 kS = F;
-						const vec3 kD = vec3(1.0) - kS;
+						vec3 kD = vec3(1.0) - kS;
+						kD *= 1.0 - mat.metalness;
 
 						const vec3  numerator   = NDF * G * F;
 						const float denominator = 4.0 * max(dot(intersect.N, V), 0.0) * max(dot(intersect.N, L), 0.0);
@@ -432,18 +508,7 @@ vec3 radiance(in Ray ray)
 
 				acc  += mask * (emissive + e);
 				mask *= mat.albedo;
-				ray   = Ray(intersect.P, d);
-				break;
-			}
-			case MAT_TYPE_REFLECT:
-			{
-				acc  += mat.emissive * mask;
-				mask *= mat.albedo;
-
-				const float r2 = rand();
-				const vec3 offset = jitter(intersect.N, 2.0 * PI * rand(), sqrt(r2), sqrt(1.0 - r2)) * mat.roughness;
-				ray = Ray(intersect.P, normalize(reflect(ray.dir, intersect.N) + offset));
-
+				ray   = Ray(intersect.P, normalize(reflect(ray.dir, intersect.N) + d));
 				break;
 			}
 			case MAT_TYPE_DIELECTRIC:
@@ -522,7 +587,7 @@ void main()
 	accum.rgb = accum.rgb / (accum.rgb + vec3(1.0));
 	accum.rgb = pow(accum.rgb, vec3(1.0 / 2.2));
 
-	const vec3 dithered_color = accum + rand() / 64.0;
+	vec3 dithered_color = accum + rand() / 64.0;
 
 	imageStore(render_target, ivec2(gl_GlobalInvocationID.xy), vec4(dithered_color, 1.0));
 }

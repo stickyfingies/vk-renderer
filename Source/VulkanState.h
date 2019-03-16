@@ -98,6 +98,9 @@ struct VulkanState
 
 	VkSampler raytrace_storage_image_sampler;
 
+	VkBuffer scene_data_buffer;
+
+	VkDeviceMemory scene_data_buffer_memory;
 	VkDeviceMemory raytrace_storage_image_memory;
 
 	std::vector<VkImage>        traced_images; // 0 is current, 1 is previous

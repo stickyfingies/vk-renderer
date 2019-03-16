@@ -76,7 +76,7 @@ static void mouse_callback(GLFWwindow * window, double pos_x, double pos_y)
 	offset_x *= sensitivity;
 	offset_y *= sensitivity;
 
-	camera.aux.yaw   -= offset_x;
+	camera.aux.yaw -= offset_x;
 	camera.aux.pitch += offset_y;
 
 	camera.update();
@@ -124,21 +124,21 @@ int main()
 
 	// Set up main loop
 
-	double previous_time{glfwGetTime()};
+	double previous_time{ glfwGetTime() };
 
-	unsigned int frame_count{0};
+	unsigned int frame_count{ 0 };
 
 	float delta_time = 0.0f;
 	float last_frame = 0.0f;
 
-	camera.data.pos = { -48.0583, 28.1225, 90.9559 };
+	camera.data.pos = { 32.8509, 30.6991, -106.389 };
 
-	camera.aux.pitch = 1.50998;
-	camera.aux.yaw   = -421.35;
+	camera.aux.pitch = 4.44998;
+	camera.aux.yaw = -602.79;
 
 	camera.update();
 
-	frame_data.light_pos  = glm::vec3(0.0f, 64.0f, 0.0f);
+	frame_data.light_pos = glm::vec3(0.0f, 64.0f, 0.0f);
 	frame_data.camera = camera.data;
 
 	device.Draw(frame_data);
@@ -158,7 +158,7 @@ int main()
 		{
 			std::cout << frame_count << " FPS" << std::endl;
 
-			frame_count   = 0;
+			frame_count = 0;
 			previous_time = current_time;
 		}
 

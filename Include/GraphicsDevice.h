@@ -10,6 +10,13 @@
 
 struct GLFWwindow;
 
+struct Triangle
+{
+	alignas(16) glm::vec3 v0;
+	alignas(16) glm::vec3 v1;
+	alignas(16) glm::vec3 v2;
+};
+
 struct FrameData
 {
 	alignas(4) float aspect_ratio;

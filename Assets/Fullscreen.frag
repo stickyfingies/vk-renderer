@@ -9,6 +9,8 @@ layout(set = 0, binding = 0) uniform sampler2D raytraced_image;
 
 layout(set = 0, binding = 1) uniform sampler2D prev_raytraced_image;
 
+const float inv_size = 1.0 / 2048.0;
+
 void main()
 {
 	const vec2 uv = { uv_coords.s, 1.0 - uv_coords.t };
@@ -16,10 +18,10 @@ void main()
 	const vec3 color_0 = texture(raytraced_image, uv).rgb;
 	const vec3 color_1 = texture(prev_raytraced_image, uv).rgb;
 
-	const vec3 N = texture(raytraced_image, uv + vec2(0.0, 1.0)  * (1.0 / 1024.0)).rgb;
-	const vec3 S = texture(raytraced_image, uv + vec2(0.0, -1.0) * (1.0 / 1024.0)).rgb;
-	const vec3 E = texture(raytraced_image, uv + vec2(1.0, 0.0)  * (1.0 / 1024.0)).rgb;
-	const vec3 W = texture(raytraced_image, uv + vec2(-1.0, 0.0) * (1.0 / 1024.0)).rgb;
+	const vec3 N = texture(raytraced_image, uv + vec2(0.0, 1.0)  * inv_size).rgb;
+	const vec3 S = texture(raytraced_image, uv + vec2(0.0, -1.0) * inv_size).rgb;
+	const vec3 E = texture(raytraced_image, uv + vec2(1.0, 0.0)  * inv_size).rgb;
+	const vec3 W = texture(raytraced_image, uv + vec2(-1.0, 0.0) * inv_size).rgb;
 
 	const float vT = dot(color_0 - color_1, color_0 - color_1); // Temporal variance
 

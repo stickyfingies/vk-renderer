@@ -788,6 +788,34 @@ GraphicsDevice::Error GraphicsDevice::Construct(const GraphicsDevice::CreateInfo
 		raytrace_image_sampler_info.maxLod     = 0.0f;
 
 		vkCreateSampler(state.device, &raytrace_image_sampler_info, nullptr, &state.raytrace_storage_image_sampler);
+
+		VkBufferCreateInfo scene_buffer_info{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
+
+		scene_buffer_info.size  = sizeof(Triangle) * 1;
+		scene_buffer_info.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
+		
+		scene_buffer_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+
+		vkCreateBuffer(state.device, &scene_buffer_info, nullptr, &state.scene_data_buffer);
+
+		VkMemoryRequirements scene_buffer_mem_reqs;
+
+		vkGetBufferMemoryRequirements(state.device, state.scene_data_buffer, &scene_buffer_mem_reqs);
+
+		VkMemoryAllocateInfo alloc_info{VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO};
+		alloc_info.allocationSize = scene_buffer_mem_reqs.size;
+		alloc_info.memoryTypeIndex = find_memory_type(scene_buffer_mem_reqs.memoryTypeBits, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+
+		vkAllocateMemory(state.device, &alloc_info, nullptr, &state.scene_data_buffer_memory);
+
+		vkBindBufferMemory(state.device, state.scene_data_buffer, state.scene_data_buffer_memory, 0);
+
+		Triangle triangle{ {10.0f, 10.0f, 0.0f}, {0.0f, 20.0f, 0.0f}, {-10.0f, 10.0f, 0.0f} };
+
+		void * mapped_buffer_mem;
+		vkMapMemory(state.device, state.scene_data_buffer_memory, 0, VK_WHOLE_SIZE, 0, &mapped_buffer_mem);
+		memcpy(mapped_buffer_mem, &triangle, sizeof(triangle));
+		vkUnmapMemory(state.device, state.scene_data_buffer_memory);
 	}
 
 	// Create render pass
@@ -961,9 +989,19 @@ GraphicsDevice::Error GraphicsDevice::Construct(const GraphicsDevice::CreateInfo
 		storage_sampler_binding.descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
 		storage_sampler_binding.descriptorCount = 1;
 
+		VkDescriptorSetLayoutBinding scene_buffer_binding{};
+
+		scene_buffer_binding.binding    = 1;
+		scene_buffer_binding.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+
+		scene_buffer_binding.descriptorCount = 1;
+		scene_buffer_binding.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+
+		const VkDescriptorSetLayoutBinding bindings[] { storage_sampler_binding, scene_buffer_binding };
+
 		VkDescriptorSetLayoutCreateInfo layout_info{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
-		layout_info.bindingCount = 1;
-		layout_info.pBindings    = &storage_sampler_binding;
+		layout_info.bindingCount = 2;
+		layout_info.pBindings    = bindings;
 
 		vkCreateDescriptorSetLayout(state.device, &layout_info, nullptr, &state.compute_descset_layout);
 
@@ -973,10 +1011,18 @@ GraphicsDevice::Error GraphicsDevice::Construct(const GraphicsDevice::CreateInfo
 
 		pool_size.descriptorCount = static_cast<unsigned int>(state.FRAMES_IN_FLIGHT);
 
+		VkDescriptorPoolSize scene_buffer_size{};
+		
+		scene_buffer_size.type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+
+		scene_buffer_size.descriptorCount = static_cast<unsigned int>(state.FRAMES_IN_FLIGHT);
+
+		const VkDescriptorPoolSize pool_sizes[] { pool_size, scene_buffer_size };
+
 		VkDescriptorPoolCreateInfo pool_info{VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
 
-		pool_info.poolSizeCount = 1;
-		pool_info.pPoolSizes    = &pool_size;
+		pool_info.poolSizeCount = 2;
+		pool_info.pPoolSizes    = pool_sizes;
 		pool_info.maxSets       = static_cast<unsigned int>(state.FRAMES_IN_FLIGHT);
 
 		vkCreateDescriptorPool(state.device, &pool_info, nullptr, &state.compute_desc_pool);
@@ -1001,16 +1047,33 @@ GraphicsDevice::Error GraphicsDevice::Construct(const GraphicsDevice::CreateInfo
 			image_info.imageView = state.traced_image_views[i];
 			image_info.sampler   = state.raytrace_storage_image_sampler;
 
-			VkWriteDescriptorSet descriptor_write{VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
+			VkDescriptorBufferInfo scene_buffer_info{};
 
-			descriptor_write.dstSet = state.compute_descsets[i];
-			descriptor_write.dstBinding = 0;
-			descriptor_write.dstArrayElement = 0;
-			descriptor_write.descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
-			descriptor_write.descriptorCount = 1;
-			descriptor_write.pImageInfo = &image_info;
+			scene_buffer_info.buffer = state.scene_data_buffer;
+			scene_buffer_info.offset = 0;
+			scene_buffer_info.range  = VK_WHOLE_SIZE;
 
-			vkUpdateDescriptorSets(state.device, 1, &descriptor_write, 0, nullptr);
+			VkWriteDescriptorSet storage_image_write{VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
+
+			storage_image_write.dstSet = state.compute_descsets[i];
+			storage_image_write.dstBinding = 0;
+			storage_image_write.dstArrayElement = 0;
+			storage_image_write.descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+			storage_image_write.descriptorCount = 1;
+			storage_image_write.pImageInfo = &image_info;
+
+			VkWriteDescriptorSet scene_buffer_write{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET };
+
+			scene_buffer_write.dstSet = state.compute_descsets[i];
+			scene_buffer_write.dstBinding = 1;
+			scene_buffer_write.dstArrayElement = 0;
+			scene_buffer_write.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+			scene_buffer_write.descriptorCount = 1;
+			scene_buffer_write.pBufferInfo = &scene_buffer_info;
+
+			const VkWriteDescriptorSet descriptor_writes[] { storage_image_write, scene_buffer_write };
+
+			vkUpdateDescriptorSets(state.device, 2, descriptor_writes, 0, nullptr);
 		}
 	}
 
@@ -1091,6 +1154,10 @@ GraphicsDevice::Error GraphicsDevice::Destruct()
 
 	vkDestroyDescriptorSetLayout(state.device, state.graphics_descset_layout, nullptr);
 	vkDestroyDescriptorSetLayout(state.device, state.compute_descset_layout, nullptr);
+
+	vkDestroyBuffer(state.device, state.scene_data_buffer, nullptr);
+
+	vkFreeMemory(state.device, state.scene_data_buffer_memory, nullptr);
 
 	vkDestroySampler(state.device, state.raytrace_storage_image_sampler, nullptr);
 
