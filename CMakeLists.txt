@@ -30,11 +30,11 @@ set (Win32Libs
 	${CMAKE_CURRENT_SOURCE_DIR}/Bin/glfw3dll.lib
 )
 
-if (WIN32)
-	set (Libs ${Win32Libs})
-else ()
+# if (WIN32)
+# 	set (Libs ${Win32Libs})
+# else ()
 	set (Libs ${UnixLibs})
-endif (WIN32)
+# endif (WIN32)
 
 target_link_libraries (VulkanToy
 PRIVATE
