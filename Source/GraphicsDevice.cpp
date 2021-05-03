@@ -262,8 +262,9 @@ GraphicsDevice::Error GraphicsDevice::Construct(const GraphicsDevice::CreateInfo
 			instanceInfo.ppEnabledLayerNames = layerNames;
 		}
 
-		if (vkCreateInstance(&instanceInfo, nullptr, &state.instance) != VK_SUCCESS)
+		if (const auto res = vkCreateInstance(&instanceInfo, nullptr, &state.instance); res != VK_SUCCESS)
 		{
+			std::cout << "[app] - err :: Failed to create Vulkan instance (" << res << ")" << std::endl;
 			return Error::UNKNOWN;
 		}
 	}
@@ -272,6 +273,7 @@ GraphicsDevice::Error GraphicsDevice::Construct(const GraphicsDevice::CreateInfo
 	{
 		if (glfwCreateWindowSurface(state.instance, info.window, nullptr, &state.surface) != VK_SUCCESS)
 		{
+			std::cout << "[app] - err :: Failed to create window surface" << std::endl;
 			return Error::UNKNOWN;
 		}
 	}
@@ -433,6 +435,7 @@ GraphicsDevice::Error GraphicsDevice::Construct(const GraphicsDevice::CreateInfo
 
 		if (vkCreateDevice(state.physicalDevice, &createInfo, nullptr, &state.device) != VK_SUCCESS)
 		{
+			std::cout << "[app] - err :: Failed to create logical device" << std::endl;
 			return Error::UNKNOWN;
 		}
 
@@ -651,6 +654,7 @@ GraphicsDevice::Error GraphicsDevice::Construct(const GraphicsDevice::CreateInfo
 			if (vkCreateFence(state.device, &fenceInfo, nullptr, &state.swapchain.frameFences[i]) != VK_SUCCESS)
 			{
 				std::cout << "[app] - err :: Failed to create swapchain fence" << std::endl;
+				return Error::UNKNOWN;
 			}
 		}
 	}

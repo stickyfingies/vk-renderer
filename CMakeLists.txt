@@ -11,8 +11,6 @@ PRIVATE
 	Source/GraphicsDevice.cpp
 )
 
-set(ENV{VULKAN_SDK} "C:/VulkanSDK/1.1.92.1")
-
 find_package(Vulkan REQUIRED)
 
 target_include_directories (VulkanToy

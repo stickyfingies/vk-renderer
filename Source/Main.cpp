@@ -111,7 +111,7 @@ int main()
 
 			1024,
 
-			true
+			false
 		};
 
 		// Construct graphics device
@@ -192,7 +192,7 @@ int main()
 		// Point being, please uncomment this next line unless
 		// performance depends on it.
 
-		// std::this_thread::sleep_for(std::chrono::milliseconds(12));
+		 std::this_thread::sleep_for(std::chrono::milliseconds(12));
 	}
 
 	// Uninitialize
